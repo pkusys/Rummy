@@ -19,6 +19,7 @@ set(FAISS_GPU_SRC
   GpuIndexIVFScalarQuantizer.cu
   GpuResources.cpp
   StandardGpuResources.cpp
+  PipeGpuResources.cpp
   impl/BinaryDistance.cu
   impl/BinaryFlatIndex.cu
   impl/BroadcastSum.cu
@@ -94,6 +95,7 @@ set(FAISS_GPU_HEADERS
   GpuIndicesOptions.h
   GpuResources.h
   StandardGpuResources.h
+  PipeGpuResources.h
   impl/BinaryDistance.cuh
   impl/BinaryFlatIndex.cuh
   impl/BroadcastSum.cuh

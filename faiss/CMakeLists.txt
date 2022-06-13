@@ -78,6 +78,7 @@ set(FAISS_SRC
   utils/quantize_lut.cpp
   utils/random.cpp
   utils/utils.cpp
+  pipe/PipeCluster.cpp
 )
 
 set(FAISS_HEADERS
@@ -166,6 +167,8 @@ set(FAISS_HEADERS
   utils/simdlib_emulated.h
   utils/simdlib_neon.h
   utils/utils.h
+  pipe/PipeCluster.h
+  pipe/PipeHeap.h
 )
 
 if(NOT WIN32)
