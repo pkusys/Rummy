@@ -71,6 +71,12 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     std::fill(isPinnedDevice.begin(), isPinnedDevice.end(), false);
     std::fill(GlobalCount.begin(), GlobalCount.end(), 0);
 
+    // Construct the OnDevice cluster
+    auto tmptree = std::unique_ptr<PipeAVLTree<int,int> >
+            (new PipeAVLTree<int, int>());
+    
+    LRUtree_ = std::move(tmptree);
+
     mallocPinnedMem();
 }
 
@@ -205,9 +211,21 @@ bool PipeCluster::readPinnedonDevice(int id){
     return isPinnedDevice[id];
 }
 
-void PipeCluster::setonDevice(int id, bool b){
+void PipeCluster::setonDevice(int id, bool b, bool avl){
     // Set the status
     isonDevice[id] = b;
+    if (avl){
+        if (b){
+            LRUtree_->insert(readGlobalCount(id), id);
+        }
+        else{
+            LRUtree_->remove(readGlobalCount(id), id);
+        }
+    }
+}
+
+bool PipeCluster::readonDevice(int id){
+    return isonDevice[id];
 }
 
 void PipeCluster::addGlobalCount(int id, int num){

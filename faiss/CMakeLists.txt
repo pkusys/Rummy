@@ -168,7 +168,7 @@ set(FAISS_HEADERS
   utils/simdlib_neon.h
   utils/utils.h
   pipe/PipeCluster.h
-  pipe/PipeHeap.h
+  pipe/PipeStructure.h
 )
 
 if(NOT WIN32)

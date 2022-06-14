@@ -7,7 +7,7 @@
 
 #include <faiss/pipe/PipeCluster.h>
 #include <faiss/gpu/PipeGpuResources.h>
-#include <faiss/pipe/PipeHeap.h>
+#include <faiss/pipe/PipeStructure.h>
 #include <algorithm>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -63,8 +63,12 @@ int main(){
     pg.initializeForDevice(0, pc);
     t0 = elapsed();
     faiss::gpu::MemBlock mb = pg.allocMemory(23222);
-    for(int i = 0; i < mb.pages.size(); i++)
-        pg.pageinfo[mb.pages[i]] = 1;
+    for(int i= 0; i < mb.pages.size(); i++){
+        pc->addGlobalCount(i, i);
+        pc->setonDevice(i, true);
+    }
+    // for(int i = 0; i < mb.pages.size(); i++)
+    //     pg.pageinfo[mb.pages[i]] = 1;
     t1 = elapsed();
     printf("Alloc Time: %f ms\n", (t1 - t0)*1000);
     t0 = elapsed();
@@ -72,9 +76,9 @@ int main(){
     t1 = elapsed();
     printf("Alloc Time: %f ms\n", (t1 - t0)*1000);
     auto vec = mb.pages;
+    std::cout << mb.valid << "\n";
     for (int i= 0; i < vec.size(); i++)
         std::cout << vec[i] << " ";
     std::cout << "\n";
-    sleep(5);
     delete pc;
 }

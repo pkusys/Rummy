@@ -12,6 +12,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <faiss/pipe/PipeStructure.h>
 
 #include <list>
 #include <memory>
@@ -44,8 +45,12 @@ public:
     // Check the balanced clusters's pinned status
     bool readPinnedonDevice(int id);
 
-    // Set the balanced clusters's status on device
-    void setonDevice(int id, bool b);
+    // Set the balanced clusters's status on device 
+    // (avl means if you want to change the avl tree)
+    void setonDevice(int id, bool b, bool avl = true);
+
+    // Return if the cluster is on device
+    bool readonDevice(int id);
 
     // Add the Global count by reference number
     void addGlobalCount(int id, int num);
@@ -53,6 +58,9 @@ public:
     // Check the Global count by reference number
     int readGlobalCount(int id);
 
+public:
+    /// AVL Tree to manage the allocated clusters (LRU count -> offset)
+    std::unique_ptr<PipeAVLTree<int,int> > LRUtree_;
 
 public: // For convenient, may change the mode to public later
 // private

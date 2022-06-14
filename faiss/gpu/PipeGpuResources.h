@@ -11,7 +11,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StackDeviceMemory.h>
 #include <faiss/pipe/PipeCluster.h>
-#include <faiss/pipe/PipeHeap.h>
+#include <faiss/pipe/PipeStructure.h>
 #include <functional>
 #include <map>
 #include <unordered_map>
@@ -141,6 +141,9 @@ public: // For debug
     /// Record which cluster the ith page is affiliated to
     std::vector<int> pageinfo;
 
+    /// AVL Tree to manage the free pages
+    std::unique_ptr<PipeAVLTree<int,int> > freetree_;
+
     /// The cluster info on CPU side
     PipeCluster *pc_;
 };
@@ -161,7 +164,7 @@ public:
     /// bytes (already malloc, just return the pointer)
     void* allocMemory(size_t size);
 
-    /// Free a block of memory
+    /// Free a block of memory (deprecated !!!)
     void deallocMemory(void* p, size_t size);
 
     size_t getSizeAvailable() const;

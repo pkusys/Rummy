@@ -339,68 +339,89 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
 
     std::fill(pageinfo.begin(), pageinfo.end(), -1);
 
+    // Construct the avl tree of free pages
+    auto tmptree = std::unique_ptr<PipeAVLTree<int,int> >
+            (new PipeAVLTree<int, int>());
+    for (int i = 0 ;i < pageNum; i++)
+        tmptree->insert(i, i);
+    
+    freetree_ = std::move(tmptree);
+
     isini[device] = true;
 }
 
 MemBlock PipeGpuResources::allocMemory(int size){
     MemBlock best;
 
-    // Number of already allocated pages
     int cnt = 0;
     int freecnt = 0;
 
     std::vector<int> alloc(size);
 
     // Try to allocate free pages
-    for (int i = 0; i < pageinfo.size(); i++){
-        if (pageinfo[i] < 0){
-            alloc[cnt++] = i;
-        }
-        if (cnt == size)
+    for(int i = 0; i < size;i++){
+        // No free pages left
+        if (freetree_->size == 0)
             break;
+        
+        std::pair<int, int> tmppair = freetree_->minimum();
+        // std::cout << tmppair.second << "\n";
+        int offset = tmppair.first;
+        alloc[cnt] = offset;
+
+        // Delete the free pages in avl tree
+        freetree_->remove(offset, offset);
+
+        cnt++;
     }
-    
+
     // Calculate the realloc pages
     freecnt = cnt;
     cnt = size - freecnt;
 
     if (cnt == 0){
+        // no need to sort
+        best.pages = std::move(alloc);
+        return best;
+    }
+    cnt = 0;
+
+    // Try to reallocate pages
+    for (int i= 0; i < size - freecnt; i++){
+        if(pc_->LRUtree_->size == 0)
+            break;
+        
+        std::pair<int, int> tmppair = pc_->LRUtree_->minimum();
+        alloc[freecnt+cnt] = tmppair.second;
+
+        // Delete the free pages in avl tree
+        pc_->LRUtree_->remove(tmppair.first, tmppair.second);
+
+        cnt++;
+    }
+    if (cnt + freecnt == size){
+        // Free these pages
+        for (int i = freecnt; i < size; i++){
+            int id = alloc[i];
+            pageinfo[id] = -1;
+            pc_->setonDevice(id, false, false);
+        }
+        std::sort(alloc.begin(), alloc.end());
         best.pages = std::move(alloc);
         return best;
     }
 
-    // Try to reallocate pages
-    faiss::HeapType t = faiss::HeapType::MAXHEAP;
-    faiss::PipeHeap<int, int> heap(cnt, t);
-    for (int i = 0; i < pageinfo.size(); i++){
-        if (pageinfo[i] >= 0){
-            if (pc_->readPinnedonDevice(pageinfo[i]))
-                continue;
-            int LRUcnt = pc_->readGlobalCount(pageinfo[i]);
-            if (heap.isFull() && LRUcnt >= heap.read())
-                continue;
-            std::pair<int,int> p(LRUcnt, i);
-            heap.push(p);
-        }
-    }
-    if (heap.getSize() == cnt){
-        auto vec = heap.dump();
-        for (int i = 0; i < vec.size(); i++){
-            alloc[i + freecnt] = vec[i];
-        }
-        best.pages = std::move(alloc);
-        return best;
-    }
     best.valid = false;
     return best;
+    
 }
 
 void PipeGpuResources::deallocMemory(int sta, int num){
-    for (int i = sta; i < num + sta; i++){
-        pc_->setonDevice(i, false);
-        pc_->setPinnedonDevice(i, false);
-        pageinfo[i] = -1;
-    }
+    // for (int i = sta; i < num + sta; i++){
+    //     pc_->setonDevice(i, false);
+    //     pc_->setPinnedonDevice(i, false);
+    //     pageinfo[i] = -1;
+    // }
 }
 
 //
