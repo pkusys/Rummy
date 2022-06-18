@@ -4,15 +4,38 @@
 #include <stdint.h>
 #include <algorithm>
 #include <mutex>
+#include <string.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/platform_macros.h>
-#include <faiss/CpuIndexIVFPipe.h>
-#include <faiss/impl/AuxIndexStructures.h>
+#include "faiss/CpuIndexIVFPipe.h"
 #include <faiss/utils/utils.h>
 #include <faiss/utils/hamming.h>
 #include <faiss/utils/Heap.h>
 
+
 namespace faiss {
+
+
+/*************************************************************************
+ * IndexIVFStats
+ *************************************************************************/
+
+void IndexIVFStats::reset() {
+    memset((void*)this, 0, sizeof(*this));
+}
+
+void IndexIVFStats::add(const IndexIVFStats& other) {
+    nq += other.nq;
+    nlist += other.nlist;
+    ndis += other.ndis;
+    nheap_updates += other.nheap_updates;
+    quantization_time += other.quantization_time;
+    search_time += other.search_time;
+}
+
+IndexIVFStats indexIVF_stats;
+
+
 
 /*****************************************
  * IndexIVFPipe implementation
@@ -25,17 +48,20 @@ IndexIVFPipe::IndexIVFPipe(
             size_t d_,
             size_t nlist_,
             MetricType metric_type_)
-            : d(d_), nlist(nlist_), metric_type(metric_type_) {
+            : d(d_), nlist(nlist_), metric_type(metric_type_), Index(d_) {
                 verbose = false;
                 balanced = false;
+                code_size = d * sizeof(float);
                 direct_map = new DirectMap();
                 quantizer = new IndexFlatPipe (d_, nlist_, metric_type);
                 invlists = new ArrayInvertedLists(nlist, code_size);
                 pipe_cluster = nullptr;
+                is_trained = false;
+                nprobe = 1;
                 if (metric_type == METRIC_INNER_PRODUCT) {
                     cp.spherical = true;
                 }
-                code_size = d * sizeof(float);
+                
             }
 
 IndexIVFPipe::~IndexIVFPipe() {
@@ -86,22 +112,6 @@ void IndexIVFPipe::add_with_ids(idx_t n, const float* x, const idx_t* xids) {
     std::unique_ptr<idx_t[]> coarse_idx(new idx_t[n]);
     quantizer->assign(n, x, coarse_idx.get());
     add_core(n, x, xids, coarse_idx.get());
-}
-
-
-void IndexIVFPipe::add_sa_codes(idx_t n, const uint8_t* codes, const idx_t* xids) {
-    FAISS_ASSERT(!balanced);
-    size_t coarse_size = coarse_code_size();
-    DirectMapAdd dm_adder(*direct_map, n, xids);
-
-    for (idx_t i = 0; i < n; i++) {
-        const uint8_t* code = codes + (code_size + coarse_size) * i;
-        idx_t list_no = decode_listno(code);
-        idx_t id = xids ? xids[i] : ntotal + i;
-        size_t ofs = invlists->add_entry(list_no, id, code + coarse_size);
-        dm_adder.add(i, list_no, ofs);
-    }
-    ntotal += n;
 }
 
 
@@ -222,62 +232,77 @@ void IndexIVFPipe::sa_decode(idx_t n, const uint8_t* bytes, float* x) const {
 void IndexIVFPipe::sample_list(
         idx_t n,
         const float* x,
-        idx_t k,
-        std::unique_ptr<float*>& coarse_dis,
-        std::unique_ptr<idx_t*>& ori_idx,
-        std::unique_ptr<idx_t*>& ori_offset,
-        std::unique_ptr<size_t*>& bcluster_cnt,
+        float** coarse_dis,
+        idx_t** ori_idx,
+        idx_t** ori_offset,
+        size_t** bcluster_cnt,
         size_t *actual_nprobe,
-        std::unique_ptr<int*>& pipe_cluster_idx,
-        size_t* batch_width) const {
-    FAISS_THROW_IF_NOT(k > 0);
-
+        int** pipe_cluster_idx,
+        size_t* batch_width) {
+    
     const size_t nprobe = std::min(nlist, this->nprobe);
     *actual_nprobe = nprobe;
     FAISS_THROW_IF_NOT(nprobe > 0);
 
-    coarse_dis.reset(new float[n * nprobe]);
-    ori_idx.reset(new idx_t[n * nprobe]);
-    ori_offset.reset(new idx_t[n * nprobe]);
-    bcluster_cnt.reset(new size_t[n]);
+    *coarse_dis = new float[n * nprobe];
+    *ori_idx = new idx_t[n * nprobe];
+    *ori_offset = new idx_t[n * nprobe];
+    *bcluster_cnt = new size_t[n];
 
     if (!balanced) {
         balance();
     }
 
-    double t0 = getmillisecs();
-    quantizer->search (n, x, nprobe, coarse_dis.get(), ori_idx.get());
-    double t1 = getmillisecs();
+    int nt = std::min(omp_get_max_threads(), int(n));
+    std::mutex exception_mutex;
+    std::string exception_string;
 
-    size_t max_bclusters_cnt = 0;\
+    #pragma omp parallel for if (nt > 1)
+    for (idx_t slice = 0; slice < nt; slice++) {
+        idx_t i0 = n * slice / nt;
+        idx_t i1 = n * (slice + 1) / nt;
+        if (i1 > i0) {
+            quantizer->search (i1 - i0, x + i0 * d, nprobe, (*coarse_dis) + i0 * nprobe, (*ori_idx) + i0 * nprobe);
+        }
+    }
+
     std::vector<std::vector<int>> clusters_queries;
+    clusters_queries.resize (n);
+
+    #pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
         std::vector<int> clusters_query;
         size_t offset = 0;
         for (size_t j = 0; j < nprobe; j++) {
-            ori_offset[i * nprobe + j] = offset;
+            (*ori_offset)[i * nprobe + j] = offset;
             std::vector<int> &bclusters_probe =
-                         pipe_cluster->O2Bmap[ori_idx.get()[i * nprobe + j]];
+                         pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
 
             clusters_query.insert (clusters_query.end(),
                                 bclusters_probe.begin(), bclusters_probe.end());
             offset += bclusters_probe.size();                                
         }
-        clusters_queries.push_back (clusters_query);
-        bcluster_cnt.get()[i] = offset;
-        max_bclusters_cnt = std::max (max_bclusters_cnt, offset);
+        clusters_queries[i] = clusters_query;
+        (*bcluster_cnt)[i] = offset;
+    }
+
+    size_t max_bclusters_cnt = 0;
+    for (int i = 0; i < n; i++){
+        max_bclusters_cnt = std::max (max_bclusters_cnt, (*bcluster_cnt)[i]);
     }
     *batch_width = max_bclusters_cnt;
-    pipe_cluster_idx.reset (new idx_t[n * max_bclusters_cnt]);
-    int* p = pipe_cluster_idx.get();
+    *pipe_cluster_idx = new int[n * max_bclusters_cnt];
+    auto p = *pipe_cluster_idx;
 
+
+    #pragma omp parallel for if (nt > 1)
     for (int i = 0; i < n; i++) {
-        size_t real_bclusters = bcluster_cnt.get()[i];
-        memcpy (p[i * max_bclusters_cnt], clusters_queries[i].data(), real_bclusters * sizeof(int));
-        fill (p + i * max_bclusters_cnt + real_bclusters, p + (i + 1) * max_bclusters_cnt, -1);
+        size_t real_bclusters = (*bcluster_cnt)[i];
+        memcpy ((void *)&p[i * max_bclusters_cnt], clusters_queries[i].data(), real_bclusters * sizeof(int));
+        std::fill (p + i * max_bclusters_cnt + real_bclusters, p + (i + 1) * max_bclusters_cnt, -1);
     }
 
-
+    return;
 
 }
 
@@ -287,7 +312,7 @@ void IndexIVFPipe::search(
             idx_t k,
             float* distances,
             idx_t* labels) const{
-                FAISS_THROW_FMT("search not implemented!\n");
+                FAISS_THROW_FMT("search not implemented!%d\n",1);
             }
 
 void IndexIVFPipe::range_search(
@@ -295,8 +320,49 @@ void IndexIVFPipe::range_search(
             const float* x,
             float radius,
             RangeSearchResult* result) const{
-                FAISS_THROW_FMT("search not implemented!\n");
+                FAISS_THROW_FMT("search not implemented!%d\n",2);
             }
+
+
+void IndexIVFPipe::reconstruct(idx_t key, float* recons) const {
+    FAISS_ASSERT(!balanced);
+    idx_t lo = direct_map->get(key);
+    reconstruct_from_offset(lo_listno(lo), lo_offset(lo), recons);
+}
+
+
+void IndexIVFPipe::reconstruct_n(idx_t i0, idx_t ni, float* recons) const {
+    FAISS_ASSERT(!balanced);
+    FAISS_THROW_IF_NOT(ni == 0 || (i0 >= 0 && i0 + ni <= ntotal));
+
+    for (idx_t list_no = 0; list_no < nlist; list_no++) {
+        size_t list_size = invlists->list_size(list_no);
+        ScopedIds idlist(invlists, list_no);
+
+        for (idx_t offset = 0; offset < list_size; offset++) {
+            idx_t id = idlist[offset];
+            if (!(id >= i0 && id < i0 + ni)) {
+                continue;
+            }
+
+            float* reconstructed = recons + (id - i0) * d;
+            reconstruct_from_offset(list_no, offset, reconstructed);
+        }
+    }
+}
+
+/* standalone codec interface */
+size_t IndexIVFPipe::sa_code_size() const {
+    size_t coarse_size = coarse_code_size();
+    return code_size + coarse_size;
+}
+
+void IndexIVFPipe::sa_encode(idx_t n, const float* x, uint8_t* bytes) const {
+    FAISS_THROW_IF_NOT(is_trained);
+    std::unique_ptr<int64_t[]> idx(new int64_t[n]);
+    quantizer->assign(n, x, idx.get());
+    encode_vectors(n, x, idx.get(), bytes, true);
+}
 
 size_t IndexIVFPipe::remove_ids(const IDSelector& sel) {
     FAISS_ASSERT(!balanced);
@@ -483,7 +549,6 @@ void IndexIVFPipe::balance() {
 
     std::vector<int> sizes;
     std::vector<float*> pointers;
-
     for (size_t i = 0; i < nlist; i++) {
         const uint8_t* codes_list = invlists->get_codes(i);
         size_t list_size = invlists->list_size(i);
@@ -493,14 +558,15 @@ void IndexIVFPipe::balance() {
         sizes.push_back((int)list_size);
         pointers.push_back(codes_list_float);
     }
-
-    pipe_cluster = new PipeCluster(nlist, d, std::move(sizes), std::move(pointers));
+    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
     delete invlists;
     balanced = true;
 
 }
 
-
+void IndexIVFPipe::set_nprobe(size_t nprobe_) {
+        nprobe = nprobe_;
+    }
 
 
 }

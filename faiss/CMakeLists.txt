@@ -7,6 +7,7 @@
 set(FAISS_SRC
   AutoTune.cpp
   Clustering.cpp
+  CpuIndexIVFPipe.cpp
   IVFlib.cpp
   Index.cpp
   Index2Layer.cpp
@@ -19,6 +20,7 @@ set(FAISS_SRC
   IndexBinaryIVF.cpp
   IndexFlat.cpp
   IndexFlatCodes.cpp
+  IndexFlatPipe.cpp
   IndexHNSW.cpp
   IndexIVF.cpp
   IndexIVFAdditiveQuantizer.cpp
@@ -84,6 +86,7 @@ set(FAISS_SRC
 set(FAISS_HEADERS
   AutoTune.h
   Clustering.h
+  CpuIndexIVFPipe.h
   IVFlib.h
   Index.h
   Index2Layer.h
@@ -96,6 +99,7 @@ set(FAISS_HEADERS
   IndexBinaryIVF.h
   IndexFlat.h
   IndexFlatCodes.h
+  IndexFlatPipe.h
   IndexHNSW.h
   IndexIVF.h
   IndexIVFAdditiveQuantizer.h

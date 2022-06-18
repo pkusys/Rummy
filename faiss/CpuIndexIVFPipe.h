@@ -2,10 +2,9 @@
 #include <faiss/Clustering.h>
 #include <typeinfo>
 #include <faiss/Index.h>
-#include <IndexFlatPipe.h>
+#include "IndexFlatPipe.h"
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
-#include <faiss/pipe/PipeCluster.h>
 
 namespace faiss {
 
@@ -69,16 +68,39 @@ struct IndexIVFPipe: Index {
     /// Calls add_with_ids with NULL ids
     void add(idx_t n, const float* x) override;
 
-    /// default implementation that calls encode_vectors
-    void add_with_ids(idx_t n, const float* x, const idx_t* xids) override;
-
     //reimplmented by IndexIVFFlat
     void add_core(
             idx_t n,
             const float* x,
             const idx_t* xids,
             const idx_t* precomputed_idx);
+
+    /** Add vectors that are computed with the standalone codec
+     *
+     * @param codes  codes to add size n * sa_code_size()
+     * @param xids   corresponding ids, size n
+     */
+    void add_sa_codes(idx_t n, const uint8_t* codes, const idx_t* xids);
+
+    /// default implementation that calls encode_vectors
+    void add_with_ids(idx_t n, const float* x, const idx_t* xids) override;    
+
+    void balance();
+
+    //Level1_Quantizer
+    size_t coarse_code_size() const;
+
+    /** check that the two indexes are compatible (ie, they are
+     * trained in the same way and have the same
+     * parameters). Otherwise throw. */
+    void check_compatible_for_merge(const IndexIVFPipe& other) const;
+
+
+    //* Level1Quantizier functions
+    Index::idx_t decode_listno(const uint8_t* code) const;
     
+    void encode_listno(Index::idx_t list_no, uint8_t* code) const;
+
     //reimplmented by IndexIVFFlat
     void encode_vectors(
             idx_t n,
@@ -89,62 +111,16 @@ struct IndexIVFPipe: Index {
 
     //reimplmented by IndexIVFFlat
     //get_InvertedListScanner()  removed
-
-    /** Add vectors that are computed with the standalone codec
-     *
-     * @param codes  codes to add size n * sa_code_size()
-     * @param xids   corresponding ids, size n
-     */
-    void add_sa_codes(idx_t n, const uint8_t* codes, const idx_t* xids);
-
-    /// Sub-classes that encode the residuals can train their encoders here
-    /// does nothing by default
-    void train_residual(idx_t n, const float* x);
-
-    //reimplmented by IndexIVFFlat  
-    void reconstruct_from_offset(int64_t list_no, int64_t offset, float* recons)
-            const;
-
-    //reimplmented by IndexIVFFlat
-    void sa_decode(idx_t n, const uint8_t* bytes, float* x) const;
-
-    //search_preassigned removed
-
-    /** assign the vectors, then call search_preassign */
-    void sample_list(
-            idx_t n,
-            const float* x,
-            idx_t k,
-            float* coarse_dis,
-            idx_t* idx) const;
-
-
-    void search(
-            idx_t n,
-            const float* x,
-            idx_t k,
-            float* distances,
-            idx_t* labels) const override;
-
+     
     void range_search(
             idx_t n,
             const float* x,
             float radius,
             RangeSearchResult* result) const override;
-       
+
     /** reconstruct a vector. Works only if maintain_direct_map is set to 1 or 2
      */
     void reconstruct(idx_t key, float* recons) const override;
-
-    /** Update a subset of vectors.
-     *
-     * The index must have a direct_map
-     *
-     * @param nv     nb of vectors to update
-     * @param idx    vector indices to update, size nv
-     * @param v      vectors of new values, size nv*d
-     */
-    virtual void update_vectors(int nv, const idx_t* idx, const float* v);
 
     /** Reconstruct a subset of the indexed vectors.
      *
@@ -157,22 +133,7 @@ struct IndexIVFPipe: Index {
      */
     void reconstruct_n(idx_t i0, idx_t ni, float* recons) const override;
 
-    /** Similar to search, but also reconstructs the stored vectors (or an
-     * approximation in the case of lossy coding) for the search results.
-     *
-     * Overrides default implementation to avoid having to maintain direct_map
-     * and instead fetch the code offsets through the `store_pairs` flag in
-     * search_preassigned().
-     *
-     * @param recons      reconstructed vectors size (n, k, d)
-     */
-    void search_and_reconstruct(
-            idx_t n,
-            const float* x,
-            idx_t k,
-            float* distances,
-            idx_t* labels,
-            float* recons) const override;
+    //search_and_reconstruct removed
 
     /** Reconstruct a vector given the location in terms of (inv list index +
      * inv list offset) instead of the id.
@@ -180,7 +141,7 @@ struct IndexIVFPipe: Index {
      * Useful for reconstructing when the direct_map is not maintained and
      * the inv list offset is computed by search_preassigned() with
      * `store_pairs` set.
-     */
+     *///reimplmented by IndexIVFFlat  
     virtual void reconstruct_from_offset(
             int64_t list_no,
             int64_t offset,
@@ -190,10 +151,63 @@ struct IndexIVFPipe: Index {
 
     size_t remove_ids(const IDSelector& sel) override;
 
-    /** check that the two indexes are compatible (ie, they are
-     * trained in the same way and have the same
-     * parameters). Otherwise throw. */
-    void check_compatible_for_merge(const IndexIVFPipe& other) const;
+    /// replace the inverted lists, old one is deallocated if own_invlists
+    void replace_invlists(InvertedLists* il, bool own = false);
+
+    /** sample the balanced clusters to be searched on
+     * @param n number of queries
+     * @param x vectors to query
+     * @param coarse_dis[n][nprobe]  the matrix of distance between origional clusters and queries
+     * @param ori_idx[n][nprobe] the matrix of id of origional clusters
+     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in pipe_cluster_idx[i] 
+     * @param bcluster_cnt[n] the number of balanced clusters to be searched for query i.
+     * @param actual_nprobe actual number of probes
+     * @param pipe_cluster_idx[n][batch_width] the matrix of id of balanced clusters
+     * @param batch_width the maximum numbers of balanced vectors for one query in this case
+     */
+    void sample_list(
+        idx_t n,
+        const float* x,
+        float** coarse_dis,
+        idx_t** ori_idx,
+        idx_t** ori_offset,
+        size_t** bcluster_cnt,
+        size_t *actual_nprobe,
+        int** pipe_cluster_idx,
+        size_t* batch_width);
+
+    
+    void sa_decode(idx_t n, const uint8_t* bytes, float* x) const override;
+
+    /* The standalone codec interface (except sa_decode that is specific) */
+    size_t sa_code_size() const override;
+
+    void sa_encode(idx_t n, const float* x, uint8_t* bytes) const override;
+
+
+    void search(
+            idx_t n,
+            const float* x,
+            idx_t k,
+            float* distances,
+            idx_t* labels) const override;
+
+    //search_preassigned removed
+
+    /// Sub-classes that encode the residuals can train their encoders here
+    /// does nothing by default
+    void train_residual(idx_t n, const float* x);
+
+    /** Update a subset of vectors.
+     *
+     * The index must have a direct_map
+     *
+     * @param nv     nb of vectors to update
+     * @param idx    vector indices to update, size nv
+     * @param v      vectors of new values, size nv*d
+     */
+    virtual void update_vectors(int nv, const idx_t* idx, const float* v);
+
 
     /** moves the entries from another dataset to self. On output,
      * other is empty. add_id is added to all moved ids (for
@@ -227,27 +241,24 @@ struct IndexIVFPipe: Index {
 
     void set_direct_map_type(DirectMap::Type type);
 
-    /// replace the inverted lists, old one is deallocated if own_invlists
-    void replace_invlists(InvertedLists* il, bool own = false);
+    void set_nprobe(size_t nprobe_);
 
-    /* The standalone codec interface (except sa_decode that is specific) */
-    size_t sa_code_size() const override;
-
-    void sa_encode(idx_t n, const float* x, uint8_t* bytes) const override;
+};
 
 
+struct IndexIVFStats {
+    size_t nq;                // nb of queries run
+    size_t nlist;             // nb of inverted lists scanned
+    size_t ndis;              // nb of distances computed
+    size_t nheap_updates;     // nb of times the heap was updated
+    double quantization_time; // time spent quantizing vectors (in ms)
+    double search_time;       // time spent searching lists (in ms)
 
-    //* Level1Quantizier functions
-    //
-
-    size_t coarse_code_size() const;
-    void encode_listno(Index::idx_t list_no, uint8_t* code) const;
-    Index::idx_t decode_listno(const uint8_t* code) const;
-    
-
-    void balance();
-
-
+    IndexIVFStats() {
+        reset();
+    }
+    void reset();
+    void add(const IndexIVFStats& other);
 };
 
 }

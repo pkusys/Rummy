@@ -1,5 +1,7 @@
 #include <faiss/Index.h>
 #include <vector>
+#include <faiss/pipe/PipeCluster.h>
+#include <faiss/impl/AuxIndexStructures.h>
 
 namespace faiss
 {

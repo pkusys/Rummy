@@ -1,6 +1,9 @@
-#include <IndexFlatPipe.h>
+#include "IndexFlatPipe.h"
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/AuxIndexStructures.h>
+#include <faiss/utils/Heap.h>
+#include <faiss/utils/distances.h>
+#include <faiss/utils/extra_distances.h>
 #include <cuda_runtime.h>
 
 namespace faiss
@@ -10,7 +13,7 @@ IndexFlatPipe::IndexFlatPipe(
         size_t d_,
         size_t nlist_,
         MetricType metric)
-        : Index(d, metric) {
+        : Index(d_, metric) {
             code_size = d * sizeof(float);
         }
 
@@ -36,7 +39,7 @@ void IndexFlatPipe::add (idx_t n, const float* x) {
         FAISS_ASSERT_FMT(
                     error == cudaSuccess,
                     "Failed to malloc pinned memory: %d vectors (error %d %s)",
-                    BCluSize[index],
+                    (int)(ntotal + n),
                     (int)error,
                     cudaGetErrorString(error));
         
@@ -44,7 +47,7 @@ void IndexFlatPipe::add (idx_t n, const float* x) {
         sa_encode(n, x, &codes[ntotal * code_size]);
         ntotal += n;
 
-        auto error = cudaFreeHost(pinned_codes);
+        error = cudaFreeHost(pinned_codes);
         FAISS_ASSERT_FMT(
                 error == cudaSuccess,
                 "Failed to free pinned memory (error %d %s)",
@@ -61,6 +64,79 @@ void IndexFlatPipe::add (idx_t n, const float* x) {
         ntotal += n;
     }
     return;
+}
+
+
+namespace {
+
+struct FlatL2Dis : DistanceComputer {
+    size_t d;
+    Index::idx_t nb;
+    const float* q;
+    const float* b;
+    size_t ndis;
+
+    float operator()(idx_t i) override {
+        ndis++;
+        return fvec_L2sqr(q, b + i * d, d);
+    }
+
+    float symmetric_dis(idx_t i, idx_t j) override {
+        return fvec_L2sqr(b + j * d, b + i * d, d);
+    }
+
+    explicit FlatL2Dis(const IndexFlatPipe& storage, const float* q = nullptr)
+            : d(storage.d),
+              nb(storage.ntotal),
+              q(q),
+              b(storage.get_xb()),
+              ndis(0) {}
+
+    void set_query(const float* x) override {
+        q = x;
+    }
+};
+
+struct FlatIPDis : DistanceComputer {
+    size_t d;
+    Index::idx_t nb;
+    const float* q;
+    const float* b;
+    size_t ndis;
+
+    float operator()(idx_t i) override {
+        ndis++;
+        return fvec_inner_product(q, b + i * d, d);
+    }
+
+    float symmetric_dis(idx_t i, idx_t j) override {
+        return fvec_inner_product(b + j * d, b + i * d, d);
+    }
+
+    explicit FlatIPDis(const IndexFlatPipe& storage, const float* q = nullptr)
+            : d(storage.d),
+              nb(storage.ntotal),
+              q(q),
+              b(storage.get_xb()),
+              ndis(0) {}
+
+    void set_query(const float* x) override {
+        q = x;
+    }
+};
+
+} // namespace
+
+
+DistanceComputer* IndexFlatPipe::get_distance_computer() const {
+    if (metric_type == METRIC_L2) {
+        return new FlatL2Dis(*this);
+    } else if (metric_type == METRIC_INNER_PRODUCT) {
+        return new FlatIPDis(*this);
+    } else {
+        return get_extra_distance_computer(
+                d, metric_type, metric_arg, ntotal, get_xb());
+    }
 }
 
 void IndexFlatPipe::reset() {
@@ -99,12 +175,12 @@ size_t IndexFlatPipe::remove_ids(const IDSelector& sel) {
             FAISS_ASSERT_FMT(
                         error == cudaSuccess,
                         "Failed to malloc pinned memory: %d vectors (error %d %s)",
-                        BCluSize[index],
+                        (int)(ntotal - nremove),
                         (int)error,
                         cudaGetErrorString(error));
 
             idx_t j = 0;
-            ntotal -= cnt;
+            ntotal -= nremove;
             for (idx_t i = 0; i < ntotal; i++) {
                 if (sel.is_member(i)) {
                     // should be removed
@@ -118,7 +194,7 @@ size_t IndexFlatPipe::remove_ids(const IDSelector& sel) {
                 }
             }
 
-            auto error = cudaFreeHost(pinned_codes);
+            error = cudaFreeHost(pinned_codes);
             FAISS_ASSERT_FMT(
                     error == cudaSuccess,
                     "Failed to free pinned memory (error %d %s)",
@@ -186,7 +262,7 @@ void IndexFlatPipe::pin() {
     FAISS_ASSERT_FMT(
                     error == cudaSuccess,
                     "Failed to malloc pinned memory: %d vectors (error %d %s)",
-                    BCluSize[index],
+                    (int)ntotal,
                     (int)error,
                     cudaGetErrorString(error));
 
@@ -226,7 +302,7 @@ void IndexFlatPipe::search(
         float* distances,
         idx_t* labels) const {
     FAISS_THROW_IF_NOT (k > 0);
-    FAISS_THROW_IF_NOT (!pinned);//
+    
 
     // we see the distances and labels as heaps
 
