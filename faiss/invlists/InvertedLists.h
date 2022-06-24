@@ -60,7 +60,7 @@ struct InvertedLists {
     virtual const idx_t* get_ids(size_t list_no) const = 0;
 
     /// release codes returned by get_codes (default implementation is nop
-    virtual void release_codes(size_t list_no, const uint8_t* codes) const;
+    virtual void release_codes(size_t list_no, const uint8_t* codes = nullptr) const;
 
     /// release ids returned by get_ids
     virtual void release_ids(size_t list_no, const idx_t* ids) const;

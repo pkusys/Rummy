@@ -1,3 +1,12 @@
+/**
+ * Copyright (c) zili zhang & fangyue liu @PKU.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
+
 #include <faiss/Index.h>
 #include <vector>
 #include <faiss/pipe/PipeCluster.h>

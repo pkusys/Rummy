@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) zili zhang & fangyue liu @PKU.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 #include <cstdio>
 #include <omp.h>
 #include <cinttypes>
@@ -555,6 +562,7 @@ void IndexIVFPipe::balance() {
         size_t bytes = list_size * code_size;
         float *codes_list_float = (float*)malloc(bytes);
         memcpy(codes_list_float, codes_list, bytes);
+        invlists->release_codes(i);
         sizes.push_back((int)list_size);
         pointers.push_back(codes_list_float);
     }

@@ -155,6 +155,10 @@ const uint8_t* ArrayInvertedLists::get_codes(size_t list_no) const {
     return codes[list_no].data();
 }
 
+void ArrayInvertedLists::release_codes(size_t list_no, const uint8_t* nullp) const {
+    std::vector<uint8_t>().swap(codes[list_no]);
+}
+
 const InvertedLists::idx_t* ArrayInvertedLists::get_ids(size_t list_no) const {
     assert(list_no < nlist);
     return ids[list_no].data();
