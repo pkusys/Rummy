@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "IndexFlatPipe.h"
+#include <faiss/gpu/IndexFlatPipe.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/AuxIndexStructures.h>
 #include <faiss/utils/Heap.h>
@@ -264,6 +264,7 @@ void IndexFlatPipe::pin() {
         return;
     }
 
+    // allocate pinned memory for the vectors.
     size_t bytes = ntotal * d * sizeof(float);
     auto error = cudaMallocHost((void **) &pinned_codes, bytes);
     FAISS_ASSERT_FMT(
@@ -273,6 +274,7 @@ void IndexFlatPipe::pin() {
                     (int)error,
                     cudaGetErrorString(error));
 
+    // move vectors to pinned memory.
     memcpy (pinned_codes, codes.data(), bytes);
     codes.clear ();
 
@@ -286,10 +288,12 @@ void IndexFlatPipe::unpin() {
         return;
     }
 
+    //copy data back to std::vector.
     size_t bytes = ntotal * d * sizeof(float);
     codes.resize (bytes);
     memcpy (codes.data(), pinned_codes, bytes);
 
+    //release pinned memory.
     auto error = cudaFreeHost(pinned_codes);
     FAISS_ASSERT_FMT(
                 error == cudaSuccess,

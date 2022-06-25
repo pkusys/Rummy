@@ -7,11 +7,11 @@
 
 #pragma once
 
-#include "faiss/MetricType.h"
+#include <faiss/MetricType.h>
 #include <faiss/Clustering.h>
 #include <typeinfo>
 #include <faiss/Index.h>
-#include "IndexFlatPipe.h"
+#include <faiss/pipe/IndexFlatPipe.h"
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
 

@@ -14,7 +14,7 @@
 #include <string.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/platform_macros.h>
-#include "faiss/CpuIndexIVFPipe.h"
+#include <faiss/pipe/CpuIndexIVFPipe.h>
 #include <faiss/utils/utils.h>
 #include <faiss/utils/hamming.h>
 #include <faiss/utils/Heap.h>
@@ -554,18 +554,27 @@ Index::idx_t IndexIVFPipe::decode_listno(const uint8_t* code) const {
 
 void IndexIVFPipe::balance() {
 
+    //The size of each origional cluster.
     std::vector<int> sizes;
+
+    //The data pointer of each origional cluster.
     std::vector<float*> pointers;
+
     for (size_t i = 0; i < nlist; i++) {
+
+        //copy the data of origional cluster to a malloced memory.
         const uint8_t* codes_list = invlists->get_codes(i);
         size_t list_size = invlists->list_size(i);
         size_t bytes = list_size * code_size;
         float *codes_list_float = (float*)malloc(bytes);
         memcpy(codes_list_float, codes_list, bytes);
         invlists->release_codes(i);
+        
         sizes.push_back((int)list_size);
         pointers.push_back(codes_list_float);
     }
+
+    //construct PipeCluster from the origional clusters' data.
     pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
     delete invlists;
     balanced = true;

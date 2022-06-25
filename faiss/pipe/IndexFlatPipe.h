@@ -94,8 +94,11 @@ struct IndexFlatPipe: Index
 
     void sa_decode(idx_t n, const uint8_t* bytes, float* x) const override;
 
+
+    /* move the vector data to pinned memory */
     void pin();
 
+    /* move the vector data to unpinned memory */
     void unpin();
     
 
@@ -103,6 +106,8 @@ struct IndexFlatPipe: Index
     size_t code_size;
     std::vector<uint8_t> codes;
     uint8_t* pinned_codes;
+
+    /* whether the data is in pinned memory. */
     bool pinned;
 
 
