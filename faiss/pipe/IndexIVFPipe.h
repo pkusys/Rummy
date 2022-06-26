@@ -7,30 +7,53 @@
 
 #pragma once
 
-#include <faiss/MetricType.h>
-#include <faiss/Clustering.h>
 #include <typeinfo>
+#include <faiss/Clustering.h>
 #include <faiss/Index.h>
-#include <faiss/pipe/IndexFlatPipe.h"
+#include <faiss/MetricType.h>
+#include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/gpu/StandardGpuResources.h>
+#include <faiss/pipe/IndexFlatPipe.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
 
+
 namespace faiss {
 
-/* Piped IndexIVF, with CPU quantizer */
-struct CpuIndexIVFPipe: Index {
+struct IndexIVFPipeConfig : public GpuIndexConfig {
+    inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(INDICES_64_BIT) {}
+
+    /// Use the alternative memory layout for the IVF lists
+    /// (currently the default)
+    bool interleavedLayout;
+
+    /// Index storage options for the GPU
+    IndicesOptions indicesOptions;
+
+    /// Configuration for the coarse quantizer object
+    GpuIndexFlatConfig flatConfig;
+
+};
+
+/* Piped IndexIVF, with GPU quantizer */
+struct IndexIVFPipe: Index {
 
     int d;
     size_t nlist;
     MetricType metric_type;
+    float metric_arg; ///< argument of the metric type
+
     using idx_t = int64_t;
     bool verbose;
 
-    IndexFlatPipe* quantizer; ///< quantizer that maps vectors to inverted lists
+    GpuIndexFlat* quantizer; ///< quantizer that maps vectors to inverted lists
     InvertedLists* invlists;
 
     ClusteringParameters cp; ///< to override default clustering params
 
+    StandardGpuResources provider;///< the GPU Resource provider for the GPU quantizer.
+
+    IndexIVFPipeConfig ivfPipeConfig_;///< Our configuration options
 
     bool own_invlists;
 
@@ -60,12 +83,12 @@ struct CpuIndexIVFPipe: Index {
 
     PipeCluster *pipe_cluster;
 
-    CpuIndexIVFPipe(
+    IndexIVFPipe(
             size_t d_,
             size_t nlist_,
-            MetricType = METRIC_L2, bool cpu_quantizer_);
+            MetricType = METRIC_L2);
 
-    ~CpuIndexIVFPipe();
+    ~IndexIVFPipe();
 
 
     //* IndexIVF functions:
@@ -83,7 +106,7 @@ struct CpuIndexIVFPipe: Index {
             idx_t n,
             const float* x,
             const idx_t* xids,
-            const idx_t* precomputed_idx);
+            const int* precomputed_idx);
 
     /** Add vectors that are computed with the standalone codec
      *
@@ -95,6 +118,13 @@ struct CpuIndexIVFPipe: Index {
     /// default implementation that calls encode_vectors
     void add_with_ids(idx_t n, const float* x, const idx_t* xids) override;    
 
+
+    void assignPaged_(int n, const float* x, int* coarse_ids);
+
+    void assignPage_(int n, const float* x, int* coarse_ids);
+
+
+
     void balance();
 
     //Level1_Quantizer
@@ -103,7 +133,7 @@ struct CpuIndexIVFPipe: Index {
     /** check that the two indexes are compatible (ie, they are
      * trained in the same way and have the same
      * parameters). Otherwise throw. */
-    void check_compatible_for_merge(const CpuIndexIVFPipe& other) const;
+    void check_compatible_for_merge(const IndexIVFPipe& other) const;
 
 
     //* Level1Quantizier functions
@@ -121,7 +151,7 @@ struct CpuIndexIVFPipe: Index {
 
     //reimplmented by IndexIVFFlat
     //get_InvertedListScanner()  removed
-     
+    
     void range_search(
             idx_t n,
             const float* x,
@@ -179,14 +209,28 @@ struct CpuIndexIVFPipe: Index {
         idx_t n,
         const float* x,
         float** coarse_dis,
-        idx_t** ori_idx,
+        int** ori_idx,
         idx_t** ori_offset,
         size_t** bcluster_cnt,
         size_t *actual_nprobe,
         int** pipe_cluster_idx,
         size_t* batch_width);
 
-    
+    void sampleFromCpuPaged_(
+        int n,
+        const float* x,
+        int nprobe,
+        float* coarse_dis,
+        int* coarse_ids) const;
+
+    void sampleNonPaged_(
+        int n,
+        const float* x,
+        int nprobe,
+        float* coarse_dis,
+        int* coarse_ids) const;
+
+
     void sa_decode(idx_t n, const uint8_t* bytes, float* x) const override;
 
     /* The standalone codec interface (except sa_decode that is specific) */
@@ -222,7 +266,7 @@ struct CpuIndexIVFPipe: Index {
     /** moves the entries from another dataset to self. On output,
      * other is empty. add_id is added to all moved ids (for
      * sequential ids, this would be this->ntotal */
-    virtual void merge_from(CpuIndexIVFPipe& other, idx_t add_id);
+    virtual void merge_from(IndexIVFPipe& other, idx_t add_id);
 
     /** copy a subset of the entries index to the other index
      *
@@ -232,7 +276,7 @@ struct CpuIndexIVFPipe: Index {
      *                      elements are left before and a2 elements are after
      */
     virtual void copy_subset_to(
-            CpuIndexIVFPipe& other,
+            IndexIVFPipe& other,
             int subset_type,
             idx_t a1,
             idx_t a2) const;
