@@ -351,6 +351,10 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
 }
 
 MemBlock PipeGpuResources::allocMemory(int size){
+
+    // Check if the current allocate request size <= Total page size
+    FAISS_THROW_IF_NOT(size <= pageinfo.size());
+
     MemBlock best;
 
     int cnt = 0;
@@ -414,6 +418,23 @@ MemBlock PipeGpuResources::allocMemory(int size){
     best.valid = false;
     return best;
     
+}
+
+void PipeGpuResources::updatePages(const std::vector<int> &pages, 
+        const std::vector<int> &clus){
+
+    int len = pages.size();
+    // Check the length
+    FAISS_THROW_IF_NOT_FMT(len == clus.size(), "%s", 
+            "The length of pages and clusters is not matched");
+
+    for (int i = 0; i < len; i++){
+        // Update pageinfo
+        pageinfo[i] = clus[i];
+
+        // Update pointer pipecluster
+        pc_->setonDevice(clus[i], true);
+    }
 }
 
 void PipeGpuResources::deallocMemory(int sta, int num){

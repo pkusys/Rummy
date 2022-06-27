@@ -55,7 +55,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
 
     noPinnedMem = pointers;
 
-    PinnedMem.resize(nlist);
+    Mem.resize(nlist);
 
     // Balance the clusters
     balance(StdVarRation);
@@ -63,7 +63,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     // Initialize the device memory info
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
-    PinnedMem.resize(BCluSize.size());
+    Mem.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
     DeviceMem.resize(BCluSize.size());
 
@@ -78,12 +78,14 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     LRUtree_ = std::move(tmptree);
 
     mallocPinnedMem();
+    // mallocNoPinnedMem();
+
 }
 
 PipeCluster::~PipeCluster(){
     // Free the allocated memory if necessary
-    if (!PinnedMem.empty())
-        freePinnedMem();
+    if (!Mem.empty())
+        freeMem();
 }
 
 void PipeCluster::balance(const float svr){
@@ -176,7 +178,7 @@ void PipeCluster::mallocPinnedMem(){
             // Substitute pinned memory for nopinned
             memcpy(p, nop, bytes);
 
-            PinnedMem[index] = p;
+            Mem[index] = p;
 
             // ADD the original memory address
             nop = nop + bytes/sizeof(float);
@@ -187,23 +189,72 @@ void PipeCluster::mallocPinnedMem(){
     }
     // Check the correctness of pinned malloc
     FAISS_ASSERT(index == BCluSize.size());
+
+    pinned = true;
 }
 
-void PipeCluster::freePinnedMem(){
+void PipeCluster::mallocNoPinnedMem(){
+    // Malloc the no pinned memory and free the nopinned memory
+    int index = 0;
+
+    for (int i = 0; i < nlist; i++){
+        auto balaClu = O2Bmap[i];
+        int num = balaClu.size();
+        float *nop = noPinnedMem[i];
+        
+        for(int j = 0; j < num; j++){
+            size_t bytes = BCluSize[index] * d * sizeof(float);
+            float *p;
+
+            // Malloc no pinned memory
+            p = (float *)malloc(bytes);
+
+            // Substitute pinned memory for nopinned
+            memcpy(p, nop, bytes);
+
+            Mem[index] = p;
+
+            // ADD the original memory address
+            nop = nop + bytes/sizeof(float);
+            index++;
+        }
+        // Free the nopinned memory
+        free(noPinnedMem[i]);
+    }
+    // Check the correctness of pinned malloc
+    FAISS_ASSERT(index == BCluSize.size());
+
+    pinned = false;
+}
+
+void PipeCluster::freeMem(){
     // Free the cudaMallocHost memory
-    for (int i = 0; i < PinnedMem.size(); i++){
-        auto error = cudaFreeHost(PinnedMem[i]);
-        FAISS_ASSERT_FMT(
-                error == cudaSuccess,
-                "Failed to free pinned memory (error %d %s)",
-                (int)error,
-                cudaGetErrorString(error));
+    if (pinned){
+        for (int i = 0; i < Mem.size(); i++){
+            auto error = cudaFreeHost(Mem[i]);
+            FAISS_ASSERT_FMT(
+                    error == cudaSuccess,
+                    "Failed to free pinned memory (error %d %s)",
+                    (int)error,
+                    cudaGetErrorString(error));
+        }
+    }
+    else{
+        for (int i = 0; i < Mem.size(); i++){
+            free(Mem[i]);
+        }
     }
 }
 
 void PipeCluster::setPinnedonDevice(int id, bool b){
     // Set the status
     isPinnedDevice[id] = b;
+    if (b){
+        LRUtree_->remove(readGlobalCount(id), id);
+    }
+    else{
+        LRUtree_->insert(readGlobalCount(id), id);
+    }
 }
 
 bool PipeCluster::readPinnedonDevice(int id){

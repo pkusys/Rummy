@@ -43,7 +43,7 @@ int main(){
     // }
     
     double t0, t1;
-    int nlist = 1024*16, d = 128;
+    int nlist = 1024, d = 128;
     std::vector<int> sizes;
     std::vector<float *> pointer;
     for (int i = 0; i < nlist; i++){
@@ -62,21 +62,23 @@ int main(){
     pg.setPageSize(pc->bcs*d*sizeof(float));
     pg.initializeForDevice(0, pc);
     t0 = elapsed();
-    faiss::gpu::MemBlock mb = pg.allocMemory(23222);
+    faiss::gpu::MemBlock mb = pg.allocMemory(100);
     for(int i= 0; i < mb.pages.size(); i++){
-        pc->addGlobalCount(i, i);
+        // pc->addGlobalCount(i, i);
         pc->setonDevice(i, true);
     }
-    // for(int i = 0; i < mb.pages.size(); i++)
-    //     pg.pageinfo[mb.pages[i]] = 1;
+    for(int i = 0; i < mb.pages.size(); i++){
+        pg.pageinfo[mb.pages[i]] = 1;
+        // pc->setPinnedonDevice(mb.pages[i], true); // test if pinned api modify LRU_TREE
+    }
     t1 = elapsed();
     printf("Alloc Time: %f ms\n", (t1 - t0)*1000);
     t0 = elapsed();
-    mb = pg.allocMemory(2048);
+    mb = pg.allocMemory(100);
     t1 = elapsed();
     printf("Alloc Time: %f ms\n", (t1 - t0)*1000);
     auto vec = mb.pages;
-    std::cout << mb.valid << "\n";
+    std::cout << "Valid: " << mb.valid << "\n";
     for (int i= 0; i < vec.size(); i++)
         std::cout << vec[i] << " ";
     std::cout << "\n";

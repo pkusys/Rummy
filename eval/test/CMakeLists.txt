@@ -9,3 +9,6 @@ target_link_libraries(test_memory PRIVATE faiss)
 
 add_executable(test_avl EXCLUDE_FROM_ALL test_avl.cpp)
 target_link_libraries(test_avl PRIVATE faiss)
+
+add_executable(test_heap EXCLUDE_FROM_ALL test_heap.cpp)
+target_link_libraries(test_heap PRIVATE faiss)

@@ -36,8 +36,11 @@ public:
     // Malloc Pinned memory in host for balanced clusters
     void mallocPinnedMem();
 
+    // Malloc No-Pinned memory in host for balanced clusters(for comparison)
+    void mallocNoPinnedMem();
+
     // Free Pinned memory in host for balanced clusters
-    void freePinnedMem();
+    void freeMem();
 
     // Set the balanced clusters's pinned status on device
     void setPinnedonDevice(int id, bool b);
@@ -59,7 +62,9 @@ public:
     int readGlobalCount(int id);
 
 public:
-    /// AVL Tree to manage the allocated clusters (LRU count -> offset)
+    /// AVL Tree to manage the allocated clusters 
+    /// (Key-Value: LRU count -> offset) 
+    /// (only contains no-pinned clusters on device)
     std::unique_ptr<PipeAVLTree<int,int> > LRUtree_;
 
 public: // For convenient, may change the mode to public later
@@ -77,6 +82,9 @@ public: // For convenient, may change the mode to public later
     // Balaced cluster size
     int bcs;
 
+    // Check if we use pinned memory for Mem
+    bool pinned = false;
+
     // Each cluster's number of vectors
     std::vector<int> CluSize;
 
@@ -86,11 +94,11 @@ public: // For convenient, may change the mode to public later
     // Map original clusters to balanced clusters
     std::unordered_map<int, std::vector<int> > O2Bmap;
 
-    // Each cluster's storage on noPinned Memory
+    // Each cluster's storage on noPinned Memory before balance
     std::vector<float*> noPinnedMem;
 
-    // Each cluster's storage on Pinned Memory
-    std::vector<float*> PinnedMem;
+    // Each balanced cluster's storage
+    std::vector<float*> Mem;
 
     // Each cluster's storage on Device
     std::vector<int> DeviceMem;

@@ -90,6 +90,9 @@ public:
     /// Allocate free GPU memory for size pages (Already cudamalloc, just return a pointer here)
     MemBlock allocMemory(int size);
 
+    /// Update the pages info according to responding allocated clusters
+    void updatePages(const std::vector<int> &pages, const std::vector<int> &clus);
+
     // /// Allocate non-free GPU memory since GPU memory is not enough
     // void* reallocMemory(size_t size);
 
