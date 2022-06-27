@@ -14,7 +14,7 @@ namespace faiss {
 namespace gpu {
 
 struct GpuIndexConfig {
-    inline GpuIndexConfig() : device(0), memorySpace(MemorySpace::Device) {}
+    inline GpuIndexConfig() : device(0), memorySpace(MemorySpace::Unified) {}
 
     /// GPU device on which the index is resident
     int device;
