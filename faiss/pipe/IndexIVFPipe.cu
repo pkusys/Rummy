@@ -12,35 +12,31 @@
 #include <algorithm>
 #include <mutex>
 #include <string.h>
+#include <limits>
+#include <memory>
+
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/platform_macros.h>
 #include <faiss/pipe/IndexIVFPipe.h>
 #include <faiss/utils/utils.h>
 #include <faiss/utils/hamming.h>
 #include <faiss/utils/Heap.h>
-
+#include <faiss/gpu/utils/CopyUtils.cuh>
+#include <faiss/gpu/impl/FlatIndex.cuh>
+#include <faiss/gpu/utils/DeviceDefs.cuh>
+#include <faiss/gpu/utils/DeviceUtils.h>
+#include <faiss/gpu/utils/StaticUtils.h>
+#include <faiss/gpu/GpuIndex.h>
+#include <faiss/gpu/GpuResources.h>
 
 namespace faiss {
 
 
-/*************************************************************************
- * IndexIVFStats
- *************************************************************************/
-
-void IndexIVFStats::reset() {
-    memset((void*)this, 0, sizeof(*this));
+static double elapsed() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
 }
-
-void IndexIVFStats::add(const IndexIVFStats& other) {
-    nq += other.nq;
-    nlist += other.nlist;
-    ndis += other.ndis;
-    nheap_updates += other.nheap_updates;
-    quantization_time += other.quantization_time;
-    search_time += other.search_time;
-}
-
-IndexIVFStats indexIVF_stats;
 
 
 
@@ -54,38 +50,37 @@ using ScopedCodes = InvertedLists::ScopedCodes;
 IndexIVFPipe::IndexIVFPipe(
             size_t d_,
             size_t nlist_,
-            MetricType metric_type_,
-            IndexIVFPipeConfig config_)
-            : d(d_), Index(d_, metric), nprobe (1), ivfPipeConfig_(config_),\
-            verbose(false), balanced(false), code_size(d * sizeof(float)) {
-
+            IndexIVFPipeConfig config_,
+            MetricType metric_type_)
+            : Index(d_, metric_type_), ivfPipeConfig_(config_),\
+            minPagedSize_(kMinPageSize), metric_type(metric_type_), metric_arg(0) {
+                provider = new gpu::RestrictedGpuResources();
+                resources_ = provider->getResources();
+                //gpuindex:
                 //initialize GPU resources.
                 FAISS_THROW_IF_NOT_FMT(
-                        config_.device < getNumDevices(),
+                        config_.device < gpu::getNumDevices(),
                         "Invalid GPU device %d",
                         config_.device);
 
-                FAISS_THROW_IF_NOT_MSG(dims > 0, "Invalid number of dimensions");
+                FAISS_THROW_IF_NOT_MSG(d > 0, "Invalid number of dimensions");
 
                 FAISS_THROW_IF_NOT_FMT(
-                        config_.memorySpace == MemorySpace::Device ||
-                                (config_.memorySpace == MemorySpace::Unified &&
-                                getFullUnifiedMemSupport(config_.device)),
+                        config_.memorySpace == gpu::MemorySpace::Device ||
+                                (config_.memorySpace == gpu::MemorySpace::Unified &&
+                                gpu::getFullUnifiedMemSupport(config_.device)),
                         "Device %d does not support full CUDA 8 Unified Memory (CC 6.0+)",
-                        config.device);
+                        config_.device);
 
-                resources_ = provider.getResources();
                 FAISS_ASSERT((bool)resources_);
-                resources_->initializeForDevice(config_.device);
+                resources_->initializeForDevice(ivfPipeConfig_.device);
 
-                //initialize invlists and related params.
-                FAISS_THROW_IF_NOT_MSG(nlist > 0, "nlist must be > 0");
-                direct_map = new DirectMap();
+                //ivf:
                 nlist = nlist_;
+                nprobe = 1;
                 quantizer = nullptr;
-                invlists = new ArrayInvertedLists(nlist, code_size);
-                pipe_cluster = nullptr;
 
+                FAISS_THROW_IF_NOT_MSG(nlist > 0, "nlist must be > 0");
                 // Spherical by default if the metric is inner_product
                 if (metric_type == METRIC_INNER_PRODUCT) {
                     cp.spherical = true;
@@ -95,30 +90,44 @@ IndexIVFPipe::IndexIVFPipe(
                 cp.niter = 10;
                 cp.verbose = verbose;
 
-                metric_type = metric_type_;
-                metric_arg = 0;
+                if (!quantizer) {
+                    // Construct an empty quantizer
+                    gpu::GpuIndexFlatConfig config = ivfPipeConfig_.flatConfig;
+                    // FIXME: inherit our same device
+                    config.device = config_.device;
 
+                    if (metric_type == faiss::METRIC_L2) {
+                        quantizer = new gpu::GpuIndexFlatL2(resources_, d, config);
+                    } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
+                        quantizer = new gpu::GpuIndexFlatIP(resources_, d, config);
+                    } else {
+                        // unknown metric type
+                        FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
+                    }
+                }
 
-                // Construct an empty quantizer
-                GpuIndexFlatConfig config = ivfConfig_.flatConfig;
-                // FIXME: inherit our same device
-                config.device = config_.device;
-                if (metric_type == faiss::METRIC_L2) {
-                    quantizer = new GpuIndexFlatL2(resources_, d, config);
-                } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-                    quantizer = new GpuIndexFlatIP(resources_, d, config);
-                } else {
-                    // unknown metric type
+                // Only IP and L2 are supported for now
+                if (!(metric_type == faiss::METRIC_L2 ||
+                    metric_type == faiss::METRIC_INNER_PRODUCT)) {
                     FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
                 }
 
-                //not trained when initialized
+                //gpuindexivfflat:
                 is_trained = false;
 
+
+                //initialize invlists and related params.
+                verbose = false;
+                balanced = false;
+                code_size = d * sizeof(float);
+                direct_map = new DirectMap();
+                invlists = new ArrayInvertedLists(nlist, code_size);
+                pipe_cluster = nullptr;
             }
 
 
 IndexIVFPipe::~IndexIVFPipe() {
+    delete provider;
     delete quantizer;
     delete direct_map;
     if (!balanced) {
@@ -153,28 +162,31 @@ void IndexIVFPipe::train(idx_t n, const float* x) {
             "GPU index only supports up to %d indices",
             std::numeric_limits<int>::max());
 
-    DeviceScope scope(config_.device);
+    gpu::DeviceScope scope(ivfPipeConfig_.device);
 
     // FIXME: GPUize more of this
     // First, make sure that the data is resident on the CPU, if it is not on
     // the CPU, as we depend upon parts of the CPU code
-    auto hostData = toHost<float, 2>(
+    auto hostData = gpu::toHost<float, 2>(
             (float*)x,
-            resources_->getDefaultStream(config_.device),
+            resources_->getDefaultStream(ivfPipeConfig_.device),
             {(int)n, (int)this->d});
 
-    const float* gpu_x = hostData.data();
+    const float* cpu_x = hostData.data();
+
+    
 
     if (n == 0) {
         // nothing to do
         return;
     }
-
     // leverage the CPU-side k-means code, which works for the GPU
     // flat index as well
+    cp.niter = 10;
     Clustering clus(d, nlist, cp);
+    clus.verbose = verbose;
     quantizer->reset();
-    clus.train(n, x, *quantizer);
+    clus.train(n, x, *quantizer);//TODO:
     quantizer->is_trained = true;
     FAISS_ASSERT(quantizer->ntotal == nlist);
     is_trained = true;
@@ -183,7 +195,7 @@ void IndexIVFPipe::train(idx_t n, const float* x) {
 
 
 
-void IndexIVFPipe::assignPaged_(int n, const float* x, int* coarse_ids) {
+void IndexIVFPipe::addPaged_(int n, const float* x, idx_t* coarse_ids) {
     if (n > 0) {
         size_t totalSize = (size_t)n * this->d * sizeof(float);
 
@@ -200,19 +212,18 @@ void IndexIVFPipe::assignPaged_(int n, const float* x, int* coarse_ids) {
 
             for (size_t i = 0; i < (size_t)n; i += tileSize) {
                 size_t curNum = std::min(tileSize, n - i);
-
-                assignPage_(
+                addPage_(
                         curNum,
                         x + i * (size_t)this->d,
                         coarse_ids + i);
             }
         } else {
-            assignPage_(n, x, coarse_ids);
+            addPage_(n, x, coarse_ids);
         }
     }
 }
 
-void IndexIVFPipe::assignPage_(int n, const float* x, int* coarse_ids) {
+void IndexIVFPipe::addPage_(int n, const float* x, idx_t* coarse_ids) {
     // At this point, `x` can be resident on CPU or GPU, and `ids` may be
     // resident on CPU, GPU or may be null.
     //
@@ -220,9 +231,9 @@ void IndexIVFPipe::assignPage_(int n, const float* x, int* coarse_ids) {
     // GPU.
     auto stream = resources_->getDefaultStreamCurrentDevice();
 
-    auto vecs = toDeviceTemporary<float, 2>(
+    auto vecs = gpu::toDeviceTemporary<float, 2>(
             resources_.get(),
-            config_.device,
+            ivfPipeConfig_.device,
             const_cast<float*>(x),
             stream,
             {n, this->d});
@@ -232,29 +243,25 @@ void IndexIVFPipe::assignPage_(int n, const float* x, int* coarse_ids) {
     FAISS_ASSERT(n > 0);
 
     // Not all vectors may be able to be added (some may contain NaNs etc)
-    FAISS_ASSERT(vecs.getSize(0) == indices.getSize(0));
-    FAISS_ASSERT(vecs.getSize(1) == dim_);
-
-    auto stream = resources_->getDefaultStreamCurrentDevice();
+    FAISS_ASSERT(vecs.getSize(1) == d);
 
     // Determine which IVF lists we need to append to
-
     // We don't actually need this
-    DeviceTensor<float, 2, true> listDistance(
-            resources_,
-            makeTempAlloc(AllocType::Other, stream),
+    gpu::DeviceTensor<float, 2, true> listDistance(
+            resources_.get(),
+            makeTempAlloc(gpu::AllocType::Other, stream),
             {vecs.getSize(0), 1});
     // We use this
-    DeviceTensor<int, 2, true> listIds2d(
-            resources_,
-            makeTempAlloc(AllocType::Other, stream),
+    gpu::DeviceTensor<idx_t, 2, true> listIds2d(
+            resources_.get(),
+            makeTempAlloc(gpu::AllocType::Other, stream),
             {vecs.getSize(0), 1});
-
-    quantizer_->query(
-            vecs, 1, metric_, metricArg_, listDistance, listIds2d, false);
-
+    quantizer->search(n, x_gpu, 1, listDistance.data(), listIds2d.data());
+    //gpu::FlatIndex* quantizer_ = quantizer->getGpuData();
+    //quantizer_->query(
+    //        vecs, 1, metric_type, metric_arg, listDistance, listIds2d, false);
     //copy coarse ids back to CPU
-    fromDevice<int, 2>(listIds2d, coarse_ids, stream);
+    gpu::fromDevice<idx_t, 2>(listIds2d, coarse_ids, stream);
 
     // but keep the ntotal based on the total number of vectors that we
     // attempted to add
@@ -280,10 +287,9 @@ void IndexIVFPipe::add_with_ids(idx_t n, const float* x, const idx_t* xids) {
         return;
     }
 
-    DeviceScope scope(config_.device);
-    std::unique_ptr<int[]> coarse_idx(new int[n]);
-    assignPaged_((int)n, x, coarse_idx.get());
-
+    gpu::DeviceScope scope(ivfPipeConfig_.device);
+    std::unique_ptr<idx_t[]> coarse_idx(new idx_t[n]);
+    addPaged_((int)n, x, coarse_idx.get());
     add_core(n, x, xids, coarse_idx.get());
 }
 
@@ -291,7 +297,7 @@ void IndexIVFPipe::add_core(
         idx_t n,
         const float* x,
         const int64_t* xids,
-        const int* coarse_idx)
+        const idx_t* coarse_idx)
 
 {
     FAISS_ASSERT(!balanced);
@@ -311,7 +317,7 @@ void IndexIVFPipe::add_core(
 
         // each thread takes care of a subset of lists
         for (size_t i = 0; i < n; i++) {
-            idx_t list_no = (idx_t)coarse_idx[i];
+            idx_t list_no = coarse_idx[i];
 
             if (list_no >= 0 && list_no % nt == rank) {
                 idx_t id = xids ? xids[i] : ntotal + i;
@@ -440,16 +446,16 @@ void IndexIVFPipe::sample_list(
     }
 
     int nt = std::min(omp_get_max_threads(), int(n));
-    std::mutex exception_mutex;
-    std::string exception_string;
 
 
-    DeviceScope scope(config_.device);
-    auto stream = resources_->getDefaultStream(config_.device);
+    gpu::DeviceScope scope(ivfPipeConfig_.device);
+    auto stream = resources_->getDefaultStream(ivfPipeConfig_.device);
 
     bool usePaged = false;
 
-    if (getDeviceForAddress(x) == -1) {
+    double t2 = elapsed();
+
+    if (gpu::getDeviceForAddress(x) == -1) {
         // It is possible that the user is querying for a vector set size
         // `x` that won't fit on the GPU.
         // In this case, we will have to handle paging of the data from CPU
@@ -458,7 +464,9 @@ void IndexIVFPipe::sample_list(
         // fit on the GPU (e.g., n * k is too large for the GPU memory).
         size_t dataSize = (size_t)n * this->d * sizeof(float);
 
-        if (dataSize >= minPagedSize_) {
+        size_t nprobeSize = (size_t)n * nprobe * sizeof(float);
+
+        if (dataSize >= minPagedSize_ || nprobeSize >= minPagedSize_) {
             sampleFromCpuPaged_(n, x, nprobe, *coarse_dis, *ori_idx);
             usePaged = true;
         }
@@ -468,10 +476,9 @@ void IndexIVFPipe::sample_list(
         sampleNonPaged_(n, x, nprobe, *coarse_dis, *ori_idx);
     }
 
+    printf("mere sample FINISHED in %.3f s\n", elapsed() - t2);
+    t2 = elapsed();
 
-
-    std::vector<std::vector<int>> clusters_queries;
-    clusters_queries.resize (n);
 
     #pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
@@ -479,16 +486,13 @@ void IndexIVFPipe::sample_list(
         size_t offset = 0;
         for (size_t j = 0; j < nprobe; j++) {
             (*ori_offset)[i * nprobe + j] = offset;
-            std::vector<int> &bclusters_probe =
-                         pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
-
-            clusters_query.insert (clusters_query.end(),
-                                bclusters_probe.begin(), bclusters_probe.end());
-            offset += bclusters_probe.size();                                
+            offset += (size_t)(pipe_cluster->O2Bcnt[(*ori_idx)[i * nprobe + j]]);                           
         }
-        clusters_queries[i] = clusters_query;
         (*bcluster_cnt)[i] = offset;
     }
+
+    printf("time 1 FINISHED in %.3f s\n", elapsed() - t2);
+    t2 = elapsed();
 
     size_t max_bclusters_cnt = 0;
     for (int i = 0; i < n; i++){
@@ -498,13 +502,22 @@ void IndexIVFPipe::sample_list(
     *pipe_cluster_idx = new int[n * max_bclusters_cnt];
     auto p = *pipe_cluster_idx;
 
+    printf("time 2 FINISHED in %.3f s\n", elapsed() - t2);
+    t2 = elapsed();
 
+    
     #pragma omp parallel for if (nt > 1)
-    for (int i = 0; i < n; i++) {
-        size_t real_bclusters = (*bcluster_cnt)[i];
-        memcpy ((void *)&p[i * max_bclusters_cnt], clusters_queries[i].data(), real_bclusters * sizeof(int));
-        std::fill (p + i * max_bclusters_cnt + real_bclusters, p + (i + 1) * max_bclusters_cnt, -1);
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = 0; j < nprobe; j++) {
+            idx_t offset = (*ori_offset)[i * nprobe + j] ;
+            std::vector<int> &bclusters_probe =
+                         pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
+            memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), bclusters_probe.size() * sizeof(int));                              
+        }
     }
+    
+    printf("time 3 FINISHED in %.3f s\n", elapsed() - t2);
+    t2 = elapsed();
 
     return;
 }
@@ -517,83 +530,257 @@ void IndexIVFPipe::sampleFromCpuPaged_(
         float* coarse_dis,
         int* coarse_ids) const {
 
-    // Just page without overlapping copy with compute
-    int batchSize = utils::nextHighestPowerOf2(
-            (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
+    
+    // Is pinned memory available?
+    //auto pinnedAlloc = resources_->getPinnedMemory();
+    //int pageSizeInVecs =
+    //        (int)((pinnedAlloc.second / 2) / (sizeof(float) * this->d));
 
-    for (int cur = 0; cur < n; cur += batchSize) {
-        int num = std::min(batchSize, n - cur);
+    //if (!pinnedAlloc.first || pageSizeInVecs < 1) {
+        //printf("::paged but not truly use pinned mem\n");
+        // Just page without overlapping copy with compute
+        int batchSize = gpu::utils::nextHighestPowerOf2(
+                (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
+        int batchSize_ = gpu::utils::nextHighestPowerOf2(
+            (int)((size_t)kNonPinnedPageSize / (sizeof(float) * nprobe))
+        );
 
-        float* coarse_dis_slice = coarse_dis + cur;
-        int* coarse_ids_slice = coarse_ids + cur;
+        batchSize = std::min (batchSize, batchSize_);
+        printf("batchsize:%d\n", batchSize);
 
-        sampleNonPaged_(
-                num,
-                x + (size_t)cur * this->d,
-                k,
-                coarse_dis_slice,
-                coarse_ids_slice);
+        for (int cur = 0; cur < n; cur += batchSize) {
+            int num = std::min(batchSize, n - cur);
+
+            float* coarse_dis_slice = coarse_dis + cur * nprobe;
+            int* coarse_ids_slice = coarse_ids + cur * nprobe;
+
+            sampleNonPaged_(
+                    num,
+                    x + (size_t)cur * this->d,
+                    nprobe,
+                    coarse_dis_slice,
+                    coarse_ids_slice);
+        }
+
+        return;
+    //}
+    
+/*  printf("::truly use pinned mem\n");
+    //
+    // Pinned memory is available, so we can overlap copy with compute.
+    // We use two pinned memory buffers, and triple-buffer the
+    // procedure:
+    //
+    // 1 CPU copy -> pinned
+    // 2 pinned copy -> GPU
+    // 3 GPU compute
+    //
+    // 1 2 3 1 2 3 ...   (pinned buf A)
+    //   1 2 3 1 2 ...   (pinned buf B)
+    //     1 2 3 1 ...   (pinned buf A)
+    // time ->
+    //
+    auto defaultStream = resources_->getDefaultStream(ivfPipeConfig_.device);
+    auto copyStream = resources_->getAsyncCopyStream(ivfPipeConfig_.device);
+
+    FAISS_ASSERT(
+            (size_t)pageSizeInVecs * this->d <=
+            (size_t)std::numeric_limits<int>::max());
+
+    float* bufPinnedA = (float*)pinnedAlloc.first;
+    float* bufPinnedB = bufPinnedA + (size_t)pageSizeInVecs * this->d;
+    float* bufPinned[2] = {bufPinnedA, bufPinnedB};
+
+    // Reserve space on the GPU for the destination of the pinned buffer
+    // copy
+    gpu::DeviceTensor<float, 2, true> bufGpuA(
+            resources_.get(),
+            gpu::makeTempAlloc(gpu::AllocType::Other, defaultStream),
+            {(int)pageSizeInVecs, (int)this->d});
+    gpu::DeviceTensor<float, 2, true> bufGpuB(
+            resources_.get(),
+            gpu::makeTempAlloc(gpu::AllocType::Other, defaultStream),
+            {(int)pageSizeInVecs, (int)this->d});
+    gpu::DeviceTensor<float, 2, true>* bufGpus[2] = {&bufGpuA, &bufGpuB};
+
+    // Copy completion events for the pinned buffers
+    std::unique_ptr<gpu::CudaEvent> eventPinnedCopyDone[2];
+
+    // Execute completion events for the GPU buffers
+    std::unique_ptr<gpu::CudaEvent> eventGpuExecuteDone[2];
+
+    // All offsets are in terms of number of vectors; they remain within
+    // int bounds (as this function only handles max in vectors)
+
+    // Current start offset for buffer 1
+    int cur1 = 0;
+    int cur1BufIndex = 0;
+
+    // Current start offset for buffer 2
+    int cur2 = -1;
+    int cur2BufIndex = 0;
+
+    // Current start offset for buffer 3
+    int cur3 = -1;
+    int cur3BufIndex = 0;
+
+    while (cur3 < n) {
+        // Start async pinned -> GPU copy first (buf 2)
+        if (cur2 != -1 && cur2 < n) {
+            // Copy pinned to GPU
+            int numToCopy = std::min(pageSizeInVecs, n - cur2);
+
+            // Make sure any previous execution has completed before continuing
+            auto& eventPrev = eventGpuExecuteDone[cur2BufIndex];
+            if (eventPrev.get()) {
+                eventPrev->streamWaitOnEvent(copyStream);
+            }
+
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    bufGpus[cur2BufIndex]->data(),
+                    bufPinned[cur2BufIndex],
+                    (size_t)numToCopy * this->d * sizeof(float),
+                    cudaMemcpyHostToDevice,
+                    copyStream));
+
+            // Mark a completion event in this stream
+            eventPinnedCopyDone[cur2BufIndex].reset(new gpu::CudaEvent(copyStream));
+
+            // We pick up from here
+            cur3 = cur2;
+            cur2 += numToCopy;
+            cur2BufIndex = (cur2BufIndex == 0) ? 1 : 0;
+        }
+
+        if (cur3 != -1 && cur3 < n) {
+            // Process on GPU
+            int numToProcess = std::min(pageSizeInVecs, n - cur3);
+
+            // Make sure the previous copy has completed before continuing
+            auto& eventPrev = eventPinnedCopyDone[cur3BufIndex];
+            FAISS_ASSERT(eventPrev.get());
+
+            eventPrev->streamWaitOnEvent(defaultStream);
+            auto stream = resources_->getDefaultStreamCurrentDevice();
+            // Create tensor wrappers
+            // DeviceTensor<float, 2, true> input(bufGpus[cur3BufIndex]->data(),
+            //                                    {numToProcess, this->d});
+            float* coarse_dis_slice = coarse_dis + cur3 * nprobe;
+            int* coarse_ids_slice = coarse_ids + cur3 * nprobe;
+
+
+            // Reserve space for the quantized information
+            gpu::DeviceTensor<float, 2, true> coarseDistances(
+                    resources_.get(),
+                    makeTempAlloc(gpu::AllocType::Other, stream),
+                    {numToProcess, nprobe});
+            gpu::DeviceTensor<int, 2, true> coarseIndices(
+                    resources_.get(),
+                    makeTempAlloc(gpu::AllocType::Other, stream),
+                    {numToProcess, nprobe});
+
+            // Find the `nprobe` closest lists; we can use int indices both
+            // internally and externally
+            gpu::FlatIndex* quantizer_ = quantizer->getGpuData();
+            quantizer_->query(
+                    *bufGpus[cur3BufIndex],
+                    nprobe,
+                    metric_type,
+                    metric_arg,
+                    coarseDistances,
+                    coarseIndices,
+                    false);
+
+            gpu::fromDevice<int, 2>(coarseIndices, coarse_ids_slice, stream);
+            gpu::fromDevice<float, 2>(coarseDistances, coarse_dis_slice, stream);
+
+            // Create completion event
+            eventGpuExecuteDone[cur3BufIndex].reset(
+                    new gpu::CudaEvent(defaultStream));
+
+            // We pick up from here
+            cur3BufIndex = (cur3BufIndex == 0) ? 1 : 0;
+            cur3 += numToProcess;
+        }
+
+        if (cur1 < n) {
+            // Copy CPU mem to CPU pinned
+            int numToCopy = std::min(pageSizeInVecs, n - cur1);
+
+            // Make sure any previous copy has completed before continuing
+            auto& eventPrev = eventPinnedCopyDone[cur1BufIndex];
+            if (eventPrev.get()) {
+                eventPrev->cpuWaitOnEvent();
+            }
+
+            memcpy(bufPinned[cur1BufIndex],
+                   x + (size_t)cur1 * this->d,
+                   (size_t)numToCopy * this->d * sizeof(float));
+
+            // We pick up from here
+            cur2 = cur1;
+            cur1 += numToCopy;
+            cur1BufIndex = (cur1BufIndex == 0) ? 1 : 0;
+        }
     }
 
     return;
-
-    // maybe we can consider overlapping computing with copying.
+*/
 
 }
 
 void IndexIVFPipe::sampleNonPaged_(
         int n,
         const float* x,
-        int nprobe,
+        int nprobe_,
         float* coarse_dis,
         int* coarse_ids) const {
-    auto stream = resources_->getDefaultStream(config_.device);
+    auto stream = resources_->getDefaultStream(ivfPipeConfig_.device);
 
     // Make sure arguments are on the device we desire; use temporary
     // memory allocations to move it if necessary
-    auto vecs = toDeviceTemporary<float, 2>(
+    auto vecs = gpu::toDeviceTemporary<float, 2>(
             resources_.get(),
-            config_.device,
+            ivfPipeConfig_.device,
             const_cast<float*>(x),
             stream,
             {n, (int)this->d});
 
     // Device is already set in GpuIndex::search
-    FAISS_THROW_IF_NOT(nprobe > 0 && nprobe <= nlist);
+    FAISS_THROW_IF_NOT(nprobe_ > 0 && nprobe_ <= nlist);
 
     // Data is already resident on the GPU
-    Tensor<float, 2, true> queries(const_cast<float*>(vecs.data()), {n, (int)this->d});
+    gpu::Tensor<float, 2, true> queries(const_cast<float*>(vecs.data()), {n, (int)this->d});
 
-
-    auto stream = resources_->getDefaultStreamCurrentDevice();
-
+    int kmax = GPU_MAX_SELECTION_K;
     // These are caught at a higher level
-    FAISS_ASSERT(nprobe <= GPU_MAX_SELECTION_K);
-    FAISS_ASSERT(queries.getSize(1) == dim_);
+    FAISS_ASSERT(nprobe_ <= kmax);
+    FAISS_ASSERT(queries.getSize(1) == d);
 
     // Reserve space for the quantized information
-    DeviceTensor<float, 2, true> coarseDistances(
-            resources_,
-            makeTempAlloc(AllocType::Other, stream),
-            {queries.getSize(0), nprobe});
-    DeviceTensor<int, 2, true> coarseIndices(
-            resources_,
-            makeTempAlloc(AllocType::Other, stream),
-            {queries.getSize(0), nprobe});
+    gpu::DeviceTensor<float, 2, true> coarseDistances(
+            resources_.get(),
+            makeTempAlloc(gpu::AllocType::Other, stream),
+            {queries.getSize(0), nprobe_});
+    gpu::DeviceTensor<int, 2, true> coarseIndices(
+            resources_.get(),
+            makeTempAlloc(gpu::AllocType::Other, stream),
+            {queries.getSize(0), nprobe_});
 
     // Find the `nprobe` closest lists; we can use int indices both
     // internally and externally
+    gpu::FlatIndex* quantizer_ = quantizer->getGpuData();
     quantizer_->query(
             queries,
             nprobe,
-            metric_,
-            metricArg_,
+            metric_type,
+            metric_arg,
             coarseDistances,
             coarseIndices,
             false);
 
-    fromDevice<int, 2>(coarseIndices, coarse_ids, stream);
-    fromDevice<int, 2>(coarseDistances, coarse_dis, stream);
+    gpu::fromDevice<int, 2>(coarseIndices, coarse_ids, stream);
+    gpu::fromDevice<float, 2>(coarseDistances, coarse_dis, stream);
 
 }
 
@@ -853,7 +1040,7 @@ void IndexIVFPipe::balance() {
         size_t bytes = list_size * code_size;
         float *codes_list_float = (float*)malloc(bytes);
         memcpy(codes_list_float, codes_list, bytes);
-        invlists->release_codes(i);
+        invlists->release_codes(i, nullptr);
         
         sizes.push_back((int)list_size);
         pointers.push_back(codes_list_float);

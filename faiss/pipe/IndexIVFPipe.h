@@ -12,33 +12,61 @@
 #include <faiss/Index.h>
 #include <faiss/MetricType.h>
 #include <faiss/gpu/GpuIndexFlat.h>
-#include <faiss/gpu/StandardGpuResources.h>
+#include <faiss/gpu/GpuIndicesOptions.h>
+#include <faiss/gpu/GpuResources.h>
 #include <faiss/pipe/IndexFlatPipe.h>
+#include <faiss/pipe/RestrictedGpuResources.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
-
+#include <sys/time.h>
 
 namespace faiss {
 
-struct IndexIVFPipeConfig : public GpuIndexConfig {
-    inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(INDICES_64_BIT) {}
+struct IndexIVFPipeConfig {
+    inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_64_BIT),\
+                device(0), memorySpace(gpu::MemorySpace::Device) {}
 
     /// Use the alternative memory layout for the IVF lists
     /// (currently the default)
     bool interleavedLayout;
 
     /// Index storage options for the GPU
-    IndicesOptions indicesOptions;
+    gpu::IndicesOptions indicesOptions;
 
     /// Configuration for the coarse quantizer object
-    GpuIndexFlatConfig flatConfig;
+    gpu::GpuIndexFlatConfig flatConfig;
+
+    /// GPU device on which the index is resident
+    int device;
+
+    /// What memory space to use for primary storage.
+    /// On Pascal and above (CC 6+) architectures, allows GPUs to use
+    /// more memory than is available on the GPU.
+    gpu::MemorySpace memorySpace;
 
 };
+
+    /// Default CPU search size for which we use paged copies
+    constexpr size_t kMinPageSize = (size_t)256 * 1024;
+
+    /// Size above which we page copies from the CPU to GPU (non-paged
+    /// memory usage)
+    constexpr size_t kNonPinnedPageSize = (size_t)256 * 1024;
+
+    // Default size for which we page add or search
+    constexpr size_t kAddPageSize = (size_t)256 * 1024;
+
+    // Or, maximum number of vectors to consider per page of add or search
+    constexpr size_t kAddVecSize = (size_t)256 * 1024;
+
+    // Use a smaller search size, as precomputed code usage on IVFPQ
+    // requires substantial amounts of memory
+    // FIXME: parameterize based on algorithm need
+    constexpr size_t kSearchVecSize = (size_t)32 * 1024;
 
 /* Piped IndexIVF, with GPU quantizer */
 struct IndexIVFPipe: Index {
 
-    int d;
     size_t nlist;
     MetricType metric_type;
     float metric_arg; ///< argument of the metric type
@@ -46,12 +74,12 @@ struct IndexIVFPipe: Index {
     using idx_t = int64_t;
     bool verbose;
 
-    GpuIndexFlat* quantizer; ///< quantizer that maps vectors to inverted lists
+    gpu::GpuIndexFlat* quantizer; ///< quantizer that maps vectors to inverted lists
     InvertedLists* invlists;
 
     ClusteringParameters cp; ///< to override default clustering params
 
-    StandardGpuResources provider;///< the GPU Resource provider for the GPU quantizer.
+    gpu::RestrictedGpuResources* provider;///< the GPU Resource provider for the GPU quantizer.
 
     IndexIVFPipeConfig ivfPipeConfig_;///< Our configuration options
 
@@ -83,9 +111,16 @@ struct IndexIVFPipe: Index {
 
     PipeCluster *pipe_cluster;
 
+    std::shared_ptr<gpu::GpuResources> resources_;
+
+    /// Size above which we page copies from the CPU to GPU
+    size_t minPagedSize_;
+
+
     IndexIVFPipe(
             size_t d_,
             size_t nlist_,
+            IndexIVFPipeConfig config_,
             MetricType = METRIC_L2);
 
     ~IndexIVFPipe();
@@ -106,7 +141,7 @@ struct IndexIVFPipe: Index {
             idx_t n,
             const float* x,
             const idx_t* xids,
-            const int* precomputed_idx);
+            const idx_t* precomputed_idx);
 
     /** Add vectors that are computed with the standalone codec
      *
@@ -118,13 +153,24 @@ struct IndexIVFPipe: Index {
     /// default implementation that calls encode_vectors
     void add_with_ids(idx_t n, const float* x, const idx_t* xids) override;    
 
+    /** assign input data vectors with coarse_ids, before paged
+     *
+     * @param n  number of vectors to add
+     * @param x  vectors
+     * @param coarse_ids vectors' coarse_ids, being computed by this function
+     */
+    void addPaged_(int n, const float* x, idx_t* coarse_ids);
 
-    void assignPaged_(int n, const float* x, int* coarse_ids);
+    /** assign input data vectors with coarse_ids, after paged
+     *
+     * @param n  number of vectors to add
+     * @param x  vectors
+     * @param coarse_ids vectors' coarse_ids, being computed by this function
+     */
+    void addPage_(int n, const float* x, idx_t* coarse_ids);
 
-    void assignPage_(int n, const float* x, int* coarse_ids);
 
-
-
+    // move the inverted lists into PipeCluster
     void balance();
 
     //Level1_Quantizer
@@ -216,6 +262,13 @@ struct IndexIVFPipe: Index {
         int** pipe_cluster_idx,
         size_t* batch_width);
 
+    /** sample the origional clusters to be searched on, before paged
+     * @param n number of queries
+     * @param x vectors to query
+     * @param nprobe actual number of probes
+     * @param coarse_dis[n][nprobe] the matrix of distance between origional clusters and queries
+     * @param coarse_ids[n][nprobe] the matrix of id of origional clusters
+     */
     void sampleFromCpuPaged_(
         int n,
         const float* x,
@@ -223,6 +276,13 @@ struct IndexIVFPipe: Index {
         float* coarse_dis,
         int* coarse_ids) const;
 
+    /** sample the origional clusters to be searched on, after paged
+     * @param n number of queries
+     * @param x vectors to query
+     * @param nprobe actual number of probes
+     * @param coarse_dis[n][nprobe] the matrix of distance between origional clusters and queries
+     * @param coarse_ids[n][nprobe] the matrix of id of origional clusters
+     */
     void sampleNonPaged_(
         int n,
         const float* x,
@@ -238,7 +298,9 @@ struct IndexIVFPipe: Index {
 
     void sa_encode(idx_t n, const float* x, uint8_t* bytes) const override;
 
-
+    // search the k-nearset neighbors
+    /// `x`, `distances` and `labels` can be resident on the CPU or any
+    /// GPU; copies are performed as needed
     void search(
             idx_t n,
             const float* x,

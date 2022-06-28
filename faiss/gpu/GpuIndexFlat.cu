@@ -230,7 +230,6 @@ void GpuIndexFlat::searchImpl_(
     // FlatIndex only supports int indices
     DeviceTensor<int, 2, true> outIntLabels(
             resources_.get(), makeTempAlloc(AllocType::Other, stream), {n, k});
-
     data_->query(
             queries,
             k,
@@ -239,7 +238,6 @@ void GpuIndexFlat::searchImpl_(
             outDistances,
             outIntLabels,
             true);
-
     // Convert int to idx_t
     convertTensor<int, Index::idx_t, 2>(stream, outIntLabels, outLabels);
 }

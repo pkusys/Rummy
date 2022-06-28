@@ -7,11 +7,11 @@
 
 #pragma once
 
+#include <typeinfo>
 #include <faiss/MetricType.h>
 #include <faiss/Clustering.h>
-#include <typeinfo>
 #include <faiss/Index.h>
-#include <faiss/pipe/IndexFlatPipe.h"
+#include <faiss/pipe/IndexFlatPipe.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
 
@@ -63,7 +63,7 @@ struct CpuIndexIVFPipe: Index {
     CpuIndexIVFPipe(
             size_t d_,
             size_t nlist_,
-            MetricType = METRIC_L2, bool cpu_quantizer_);
+            MetricType = METRIC_L2);
 
     ~CpuIndexIVFPipe();
 
@@ -256,7 +256,7 @@ struct CpuIndexIVFPipe: Index {
 };
 
 
-struct IndexIVFStats {
+struct CpuIndexIVFStats {
     size_t nq;                // nb of queries run
     size_t nlist;             // nb of inverted lists scanned
     size_t ndis;              // nb of distances computed
@@ -264,11 +264,11 @@ struct IndexIVFStats {
     double quantization_time; // time spent quantizing vectors (in ms)
     double search_time;       // time spent searching lists (in ms)
 
-    IndexIVFStats() {
+    CpuIndexIVFStats() {
         reset();
     }
     void reset();
-    void add(const IndexIVFStats& other);
+    void add(const CpuIndexIVFStats& other);
 };
 
 }

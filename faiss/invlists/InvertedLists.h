@@ -213,6 +213,9 @@ struct ArrayInvertedLists : InvertedLists {
 
     void resize(size_t list_no, size_t new_size) override;
 
+    /// release codes returned by get_codes (default implementation is nop
+    void release_codes(size_t list_no, const uint8_t* nullp) const override;
+
     ~ArrayInvertedLists() override;
 };
 

@@ -5,9 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <faiss/gpu/IndexFlatPipe.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/AuxIndexStructures.h>
+#include <faiss/pipe/IndexFlatPipe.h>
 #include <faiss/utils/Heap.h>
 #include <faiss/utils/distances.h>
 #include <faiss/utils/extra_distances.h>

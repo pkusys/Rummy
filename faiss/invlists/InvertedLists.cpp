@@ -156,7 +156,7 @@ const uint8_t* ArrayInvertedLists::get_codes(size_t list_no) const {
 }
 
 void ArrayInvertedLists::release_codes(size_t list_no, const uint8_t* nullp) const {
-    std::vector<uint8_t>().swap(codes[list_no]);
+    codes[list_no].empty();
 }
 
 const InvertedLists::idx_t* ArrayInvertedLists::get_ids(size_t list_no) const {

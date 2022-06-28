@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) zili zhang & fangyue liu @PKU.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -14,7 +14,7 @@
 #include <sys/time.h>
 
 #include <faiss/IndexFlat.h>
-#include "faiss/CpuIndexIVFPipe.h"
+#include <faiss/pipe/CpuIndexIVFPipe.h>
 #include <faiss/index_io.h>
 
 double elapsed() {
@@ -41,7 +41,7 @@ int main() {
     // a reasonable number of centroids to index nb vectors
     int ncentroids = 1024;
 
-    faiss::IndexIVFPipe index(d, ncentroids);
+    faiss::CpuIndexIVFPipe index(d, ncentroids);
 
     std::mt19937 rng;
 

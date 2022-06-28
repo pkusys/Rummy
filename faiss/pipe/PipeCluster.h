@@ -86,6 +86,9 @@ public: // For convenient, may change the mode to public later
     // Map original clusters to balanced clusters
     std::unordered_map<int, std::vector<int> > O2Bmap;
 
+    // Map original clusters to number of balanced clusters
+    std::unordered_map<int, int > O2Bcnt;
+
     // Each cluster's storage on noPinned Memory
     std::vector<float*> noPinnedMem;
 

@@ -7,7 +7,6 @@
 set(FAISS_SRC
   AutoTune.cpp
   Clustering.cpp
-  CpuIndexIVFPipe.cpp
   IVFlib.cpp
   Index.cpp
   Index2Layer.cpp
@@ -20,7 +19,6 @@ set(FAISS_SRC
   IndexBinaryIVF.cpp
   IndexFlat.cpp
   IndexFlatCodes.cpp
-  IndexFlatPipe.cpp
   IndexHNSW.cpp
   IndexIVF.cpp
   IndexIVFAdditiveQuantizer.cpp
@@ -80,7 +78,11 @@ set(FAISS_SRC
   utils/quantize_lut.cpp
   utils/random.cpp
   utils/utils.cpp
-  pipe/PipeCluster.cpp
+  pipe/CpuIndexIVFPipe.cpp
+  pipe/IndexFlatPipe.cpp
+  pipe/IndexIVFPipe.cu
+  pipe/PipeCluster.cpp  
+  pipe/RestrictedGpuResources.cpp
 )
 
 set(FAISS_HEADERS
@@ -171,8 +173,12 @@ set(FAISS_HEADERS
   utils/simdlib_emulated.h
   utils/simdlib_neon.h
   utils/utils.h
+  pipe/CpuIndexIVFPipe.h
+  pipe/IndexFlatPipe.h
+  pipe/IndexIVFPipe.h
   pipe/PipeCluster.h
   pipe/PipeStructure.h
+  pipe/RestrictedGpuResources.h
 )
 
 if(NOT WIN32)

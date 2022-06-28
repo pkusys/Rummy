@@ -24,14 +24,14 @@ namespace faiss {
 
 
 /*************************************************************************
- * IndexIVFStats
+ * CpuIndexIVFStats
  *************************************************************************/
 
-void IndexIVFStats::reset() {
+void CpuIndexIVFStats::reset() {
     memset((void*)this, 0, sizeof(*this));
 }
 
-void IndexIVFStats::add(const IndexIVFStats& other) {
+void CpuIndexIVFStats::add(const CpuIndexIVFStats& other) {
     nq += other.nq;
     nlist += other.nlist;
     ndis += other.ndis;
@@ -40,7 +40,7 @@ void IndexIVFStats::add(const IndexIVFStats& other) {
     search_time += other.search_time;
 }
 
-IndexIVFStats indexIVF_stats;
+CpuIndexIVFStats CpuindexIVF_stats;
 
 
 
@@ -54,10 +54,10 @@ using ScopedCodes = InvertedLists::ScopedCodes;
 CpuIndexIVFPipe::CpuIndexIVFPipe(
             size_t d_,
             size_t nlist_,
-            MetricType metric_type_, bool cpu_quantizer_)
+            MetricType metric_type_)
             : d(d_), nlist(nlist_), metric_type(metric_type_), Index(d_),\
-            verbose(false), balanced(false), code_size(d * sizeof(float))\
-            is_trained (false), nprobe (1) {
+            verbose(false), balanced(false), code_size(d * sizeof(float)),\
+             nprobe (1) {
                 direct_map = new DirectMap();
                 quantizer = new IndexFlatPipe (d_, nlist_, metric_type);
                 invlists = new ArrayInvertedLists(nlist, code_size);
@@ -65,6 +65,7 @@ CpuIndexIVFPipe::CpuIndexIVFPipe(
                 if (metric_type == METRIC_INNER_PRODUCT) {
                     cp.spherical = true;
                 }
+                is_trained = false;
                 
             }
 
@@ -96,15 +97,19 @@ void CpuIndexIVFPipe::train(idx_t n, const float* x) {
 
     //FAISS_ASSERT(!index_);no data vectors yet
 
-    if (verbose)
+    if (verbose){
         printf("Training quantizer\n");
-    
+        printf("training using data %p, started with %f\n", x, *x);
+    }
+        
     Clustering clus(d, nlist, cp);
+    clus.verbose = true;
     quantizer->reset();
     clus.train(n, x, *quantizer);
     quantizer->is_trained = true;
     quantizer->pin();
     is_trained = true;
+    FAISS_ASSERT(quantizer->ntotal == nlist);
 }
 
 void CpuIndexIVFPipe::add(idx_t n, const float* x) {

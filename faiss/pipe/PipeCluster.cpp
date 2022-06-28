@@ -144,6 +144,7 @@ void PipeCluster::balance(const float svr){
             val.push_back(index++);
         
         O2Bmap[i] = std::move(val);
+        O2Bcnt[i] = O2Bmap[i].size();
     }
 
     // Check the correctness of initialization

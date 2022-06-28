@@ -381,6 +381,7 @@ void GpuIndex::searchFromCpuPaged_(
     float* bufPinnedA = (float*)pinnedAlloc.first;
     float* bufPinnedB = bufPinnedA + (size_t)pageSizeInVecs * this->d;
     float* bufPinned[2] = {bufPinnedA, bufPinnedB};
+
     // Reserve space on the GPU for the destination of the pinned buffer
     // copy
     DeviceTensor<float, 2, true> bufGpuA(

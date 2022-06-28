@@ -10,5 +10,8 @@ target_link_libraries(test_memory PRIVATE faiss)
 add_executable(test_avl EXCLUDE_FROM_ALL test_avl.cpp)
 target_link_libraries(test_avl PRIVATE faiss)
 
-add_executable(test_cpu EXCLUDE_FROM_ALL test_cpu.cpp)
-target_link_libraries(test_cpu PRIVATE faiss)
+add_executable(test_cpu_quantizer EXCLUDE_FROM_ALL test_cpu_quantizer.cpp)
+target_link_libraries(test_cpu_quantizer PRIVATE faiss)
+
+add_executable(test_gpu_quantizer EXCLUDE_FROM_ALL test_gpu_quantizer.cpp)
+target_link_libraries(test_gpu_quantizer PRIVATE faiss)
