@@ -60,7 +60,10 @@ struct InvertedLists {
     virtual const idx_t* get_ids(size_t list_no) const = 0;
 
     /// release codes returned by get_codes (default implementation is nop
-    virtual void release_codes(size_t list_no, const uint8_t* codes) const;
+    virtual void release_codes(size_t list_no, const uint8_t* codes = nullptr) const;
+
+    /// Free the codes of ith cluster
+    virtual void free_codes(size_t list_no);
 
     /// release ids returned by get_ids
     virtual void release_ids(size_t list_no, const idx_t* ids) const;
@@ -212,6 +215,11 @@ struct ArrayInvertedLists : InvertedLists {
             const uint8_t* code) override;
 
     void resize(size_t list_no, size_t new_size) override;
+
+    /// release codes returned by get_codes (default implementation is nop
+    void release_codes(size_t list_no, const uint8_t* nullp) const override;
+
+    void free_codes(size_t list_no) override;
 
     ~ArrayInvertedLists() override;
 };
