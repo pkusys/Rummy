@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) zili zhang & fangyue liu @PKU.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -21,11 +21,11 @@ namespace {
 // How many streams per device we allocate by default (for multi-streaming)
 constexpr int kNumStreams = 2;
 
-// Use 256 MiB of pinned memory for async CPU <-> GPU copies by default
+// Use 4 MiB of pinned memory for async CPU <-> GPU copies by default
 constexpr size_t kDefaultPinnedMemoryAllocation = (size_t)4 * 1024 * 1024;
 
 
-// Maximum temporary memory allocation for all GPUs
+// Maximum temporary memory allocation for all GPUs (8 MiB)
 constexpr size_t kMaxTempMem = (size_t)8 * 1024 * 1024;
 
 std::string allocsToString(const std::unordered_map<void*, AllocRequest>& map) {

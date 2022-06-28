@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) zili zhang & fangyue liu @PKU.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -18,7 +18,7 @@
 namespace faiss {
 namespace gpu {
 
-/// Standard implementation of the GpuResources object that provides for a
+/// Restrict GPU memory implementation of the GpuResources object that provides for a
 /// temporary memory manager
 class RestrictedGpuResourcesImpl : public GpuResources {
    public:

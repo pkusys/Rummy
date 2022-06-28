@@ -15,6 +15,7 @@
 namespace faiss
 {
 
+// The quantizer class of CpuIndexIVFPipe which applies pinned memory
 struct IndexFlatPipe: Index
 {
     IndexFlatPipe(

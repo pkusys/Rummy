@@ -45,7 +45,7 @@ CpuIndexIVFStats CpuindexIVF_stats;
 
 
 /*****************************************
- * CpuIndexIVFPipe implementation
+ * CpuIndexIVFPipe implementation (quantizer is on CPU)
  ******************************************/
 
 using ScopedIds = InvertedLists::ScopedIds;

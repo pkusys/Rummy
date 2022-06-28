@@ -12,6 +12,7 @@
 
 #include <omp.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include <faiss/IndexFlat.h>
 #include <faiss/pipe/IndexIVFPipe.h>
@@ -64,7 +65,7 @@ int main() {
            d);
     fflush(stdout);
 
-    std::vector<float> trainvecs(nt * d);
+    float *trainvecs = new float[nt * d];
     {
         std::uniform_real_distribution<> distrib;
         for (size_t i = 0; i < nt * d; i++) {
@@ -83,14 +84,13 @@ int main() {
 
     nq = i1 - i0;
 
-    printf("[%.3f s] Building a dataset of %ld vectors and %ld queries to index.   ",
+    printf("[%.3f s] Building a dataset of %ld vectors and %ld queries to index.\n",
            t1 - t0,
            nb,
            nq);
     fflush(stdout);
 
-    
-    std::vector<float> database(nb * d);
+    float *database = new float[nb * d];
     {
         std::uniform_real_distribution<> distrib;
         for (size_t i = 0; i < nb * d; i++) {
@@ -115,20 +115,32 @@ int main() {
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(
             d, ncentroids, config, faiss::METRIC_L2);
-    index->train(nt, trainvecs.data());
+    index->train(nt, trainvecs);
+    delete[] trainvecs;
 
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
     t1 = elapsed();
     printf("[%.3f s] adding   ",
                t1 - t0);
 
-    index->add(nb, database.data());
+    index->add(nb, database);
+    for (int i = 0; i < 16; i++)
+        printf("%d\n", index->get_list_size(i));
+    printf("Prepare delete\n");
+    sleep(5);
+    delete[] database;
+    printf("delete finishing\n");
+    sleep(5);
+    printf("Add finishing\n");
+    sleep(15);
     index->balance();
+    printf("Balance finishing\n");
+    sleep(15);
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
     t1 = elapsed();
 
-    index->set_nprobe(512);
+    index->set_nprobe(64);
     
     { // searching the database
         int k = 5;
@@ -150,7 +162,8 @@ int main() {
         index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset, &bcluster_cnt, &actual_nprobe, &pipe_cluster_idx, &batch_width);
 
     
-        printf("{FINISHED in %.3f s}\n", elapsed() - t1);
+        printf("{FINISHED in %.3f ms}\n", (elapsed() - t1) * 1000);
+        // Display the sample matrix
     /*  t1 = elapsed();
         printf("[%.3f s] Query results (vector ids, then distances)(only display 10 queries):\n",
                elapsed() - t0);
@@ -175,7 +188,6 @@ int main() {
         }
     */
     }
-    
 
 
     return 0;

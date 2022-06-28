@@ -14,6 +14,7 @@
 #include <string.h>
 #include <limits>
 #include <memory>
+#include <unistd.h>
 
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/platform_macros.h>
@@ -31,7 +32,7 @@
 
 namespace faiss {
 
-
+// For benchmark
 static double elapsed() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -48,82 +49,82 @@ using ScopedIds = InvertedLists::ScopedIds;
 using ScopedCodes = InvertedLists::ScopedCodes;
 
 IndexIVFPipe::IndexIVFPipe(
-            size_t d_,
-            size_t nlist_,
-            IndexIVFPipeConfig config_,
-            MetricType metric_type_)
-            : Index(d_, metric_type_), ivfPipeConfig_(config_),\
-            minPagedSize_(kMinPageSize), metric_type(metric_type_), metric_arg(0) {
-                provider = new gpu::RestrictedGpuResources();
-                resources_ = provider->getResources();
-                //gpuindex:
-                //initialize GPU resources.
-                FAISS_THROW_IF_NOT_FMT(
-                        config_.device < gpu::getNumDevices(),
-                        "Invalid GPU device %d",
-                        config_.device);
+    size_t d_,
+    size_t nlist_,
+    IndexIVFPipeConfig config_,
+    MetricType metric_type_)
+    : Index(d_, metric_type_), ivfPipeConfig_(config_),\
+    minPagedSize_(kMinPageSize), metric_type(metric_type_), metric_arg(0) {
+    provider = new gpu::RestrictedGpuResources();
+    resources_ = provider->getResources();
+    //gpuindex:
+    //initialize GPU resources.
+    FAISS_THROW_IF_NOT_FMT(
+            config_.device < gpu::getNumDevices(),
+            "Invalid GPU device %d",
+            config_.device);
 
-                FAISS_THROW_IF_NOT_MSG(d > 0, "Invalid number of dimensions");
+    FAISS_THROW_IF_NOT_MSG(d > 0, "Invalid number of dimensions");
 
-                FAISS_THROW_IF_NOT_FMT(
-                        config_.memorySpace == gpu::MemorySpace::Device ||
-                                (config_.memorySpace == gpu::MemorySpace::Unified &&
-                                gpu::getFullUnifiedMemSupport(config_.device)),
-                        "Device %d does not support full CUDA 8 Unified Memory (CC 6.0+)",
-                        config_.device);
+    FAISS_THROW_IF_NOT_FMT(
+            config_.memorySpace == gpu::MemorySpace::Device ||
+                    (config_.memorySpace == gpu::MemorySpace::Unified &&
+                    gpu::getFullUnifiedMemSupport(config_.device)),
+            "Device %d does not support full CUDA 8 Unified Memory (CC 6.0+)",
+            config_.device);
 
-                FAISS_ASSERT((bool)resources_);
-                resources_->initializeForDevice(ivfPipeConfig_.device);
+    FAISS_ASSERT((bool)resources_);
+    resources_->initializeForDevice(ivfPipeConfig_.device);
 
-                //ivf:
-                nlist = nlist_;
-                nprobe = 1;
-                quantizer = nullptr;
+    //ivf:
+    nlist = nlist_;
+    nprobe = 1;
+    quantizer = nullptr;
 
-                FAISS_THROW_IF_NOT_MSG(nlist > 0, "nlist must be > 0");
-                // Spherical by default if the metric is inner_product
-                if (metric_type == METRIC_INNER_PRODUCT) {
-                    cp.spherical = true;
-                }
-                // here we set a low # iterations because this is typically used
-                // for large clusterings
-                cp.niter = 10;
-                cp.verbose = verbose;
+    FAISS_THROW_IF_NOT_MSG(nlist > 0, "nlist must be > 0");
+    // Spherical by default if the metric is inner_product
+    if (metric_type == METRIC_INNER_PRODUCT) {
+        cp.spherical = true;
+    }
+    // here we set a low # iterations because this is typically used
+    // for large clusterings
+    cp.niter = 10;
+    cp.verbose = verbose;
 
-                if (!quantizer) {
-                    // Construct an empty quantizer
-                    gpu::SmallGpuIndexFlatConfig config = ivfPipeConfig_.flatConfig;
-                    // FIXME: inherit our same device
-                    config.device = config_.device;
+    if (!quantizer) {
+        // Construct an empty quantizer
+        gpu::SmallGpuIndexFlatConfig config = ivfPipeConfig_.flatConfig;
+        // FIXME: inherit our same device
+        config.device = config_.device;
 
-                    if (metric_type == faiss::METRIC_L2) {
-                        quantizer = new gpu::SmallGpuIndexFlatL2(resources_, d, config);
-                    } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-                        quantizer = new gpu::SmallGpuIndexFlatIP(resources_, d, config);
-                    } else {
-                        // unknown metric type
-                        FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
-                    }
-                }
+        if (metric_type == faiss::METRIC_L2) {
+            quantizer = new gpu::SmallGpuIndexFlatL2(resources_, d, config);
+        } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
+            quantizer = new gpu::SmallGpuIndexFlatIP(resources_, d, config);
+        } else {
+            // unknown metric type
+            FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
+        }
+    }
 
-                // Only IP and L2 are supported for now
-                if (!(metric_type == faiss::METRIC_L2 ||
-                    metric_type == faiss::METRIC_INNER_PRODUCT)) {
-                    FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
-                }
+    // Only IP and L2 are supported for now
+    if (!(metric_type == faiss::METRIC_L2 ||
+        metric_type == faiss::METRIC_INNER_PRODUCT)) {
+        FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
+    }
 
-                //gpuindexivfflat:
-                is_trained = false;
+    //gpuindexivfflat:
+    is_trained = false;
 
 
-                //initialize invlists and related params.
-                verbose = false;
-                balanced = false;
-                code_size = d * sizeof(float);
-                direct_map = new DirectMap();
-                invlists = new ArrayInvertedLists(nlist, code_size);
-                pipe_cluster = nullptr;
-            }
+    //initialize invlists and related params.
+    verbose = false;
+    balanced = false;
+    code_size = d * sizeof(float);
+    direct_map = new DirectMap();
+    invlists = new ArrayInvertedLists(nlist, code_size);
+    pipe_cluster = nullptr;
+}
 
 
 IndexIVFPipe::~IndexIVFPipe() {
@@ -419,6 +420,12 @@ void IndexIVFPipe::sample_list(
 
     FAISS_THROW_IF_NOT_MSG(this->is_trained, "Index not trained");
 
+    if (!balanced) {
+        balance();
+    }
+
+    FAISS_THROW_IF_NOT_MSG(this->balanced, "Index not balanced");
+
     // For now, only support <= max int results
     FAISS_THROW_IF_NOT_FMT(
             n <= (Index::idx_t)std::numeric_limits<int>::max(),
@@ -439,16 +446,10 @@ void IndexIVFPipe::sample_list(
     *ori_offset = new idx_t[n * nprobe];
     *bcluster_cnt = new size_t[n];
 
-    if (!balanced) {
-        balance();
-    }
-
     int nt = std::min(omp_get_max_threads(), int(n));
 
 
     gpu::DeviceScope scope(ivfPipeConfig_.device);
-    auto stream = resources_->getDefaultStream(ivfPipeConfig_.device);
-
 
     double t2 = elapsed();
 
@@ -457,12 +458,11 @@ void IndexIVFPipe::sample_list(
     
     samplePaged_(n, x, nprobe, *coarse_dis, *ori_idx);
 
-
-    printf("mere sample FINISHED in %.3f s\n", elapsed() - t2);
+    printf("mere sample FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
     t2 = elapsed();
 
 
-    #pragma omp parallel for if (nt > 1)
+#pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
         std::vector<int> clusters_query;
         size_t offset = 0;
@@ -473,7 +473,7 @@ void IndexIVFPipe::sample_list(
         (*bcluster_cnt)[i] = offset;
     }
 
-    printf("time 1 FINISHED in %.3f s\n", elapsed() - t2);
+    printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
     t2 = elapsed();
 
     size_t max_bclusters_cnt = 0;
@@ -484,11 +484,11 @@ void IndexIVFPipe::sample_list(
     *pipe_cluster_idx = new int[n * max_bclusters_cnt];
     auto p = *pipe_cluster_idx;
 
-    printf("time 2 FINISHED in %.3f s\n", elapsed() - t2);
+    printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
     t2 = elapsed();
 
     
-    #pragma omp parallel for if (nt > 1)
+#pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < nprobe; j++) {
             idx_t offset = (*ori_offset)[i * nprobe + j] ;
@@ -498,7 +498,7 @@ void IndexIVFPipe::sample_list(
         }
     }
     
-    printf("time 3 FINISHED in %.3f s\n", elapsed() - t2);
+    printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
     t2 = elapsed();
 
     return;
@@ -513,30 +513,29 @@ void IndexIVFPipe::samplePaged_(
         int* coarse_ids) const {
 
     
-        int batchSize = gpu::utils::nextHighestPowerOf2(
-                (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
-        int batchSize_ = gpu::utils::nextHighestPowerOf2(
-            (int)((size_t)kNonPinnedPageSize / (sizeof(float) * nprobe))
-        );
+    int batchSize = gpu::utils::nextHighestPowerOf2(
+            (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
+    int batchSize_ = gpu::utils::nextHighestPowerOf2(
+        (int)((size_t)kNonPinnedPageSize / (sizeof(float) * nprobe))
+    );
 
-        batchSize = std::min (batchSize, batchSize_);
-        printf("batchsize:%d\n", batchSize);
+    batchSize = std::min (batchSize, batchSize_);
+    printf("batchsize:%d\n", batchSize);
 
-        for (int cur = 0; cur < n; cur += batchSize) {
-            int num = std::min(batchSize, n - cur);
+    for (int cur = 0; cur < n; cur += batchSize) {
+        int num = std::min(batchSize, n - cur);
 
-            float* coarse_dis_slice = coarse_dis + cur * nprobe;
-            int* coarse_ids_slice = coarse_ids + cur * nprobe;
+        float* coarse_dis_slice = coarse_dis + cur * nprobe;
+        int* coarse_ids_slice = coarse_ids + cur * nprobe;
 
-            sampleNonPaged_(
-                    num,
-                    x + (size_t)cur * this->d,
-                    nprobe,
-                    coarse_dis_slice,
-                    coarse_ids_slice);
-        }
-
-        return;
+        sampleNonPaged_(
+                num,
+                x + (size_t)cur * this->d,
+                nprobe,
+                coarse_dis_slice,
+                coarse_ids_slice);
+    }
+    return;
 
 }
 
@@ -837,27 +836,31 @@ Index::idx_t IndexIVFPipe::decode_listno(const uint8_t* code) const {
 
 void IndexIVFPipe::balance() {
 
-    //The size of each origional cluster.
+    // The size of each origional cluster.
     std::vector<int> sizes;
 
-    //The data pointer of each origional cluster.
+    // The data pointer of each origional cluster.
     std::vector<float*> pointers;
 
     for (size_t i = 0; i < nlist; i++) {
 
-        //copy the data of origional cluster to a malloced memory.
+        // Copy the data of origional cluster to a malloced memory.
         const uint8_t* codes_list = invlists->get_codes(i);
         size_t list_size = invlists->list_size(i);
         size_t bytes = list_size * code_size;
         float *codes_list_float = (float*)malloc(bytes);
         memcpy(codes_list_float, codes_list, bytes);
-        invlists->release_codes(i, nullptr);
+
+        // Free the original data in case of Host memory oversubscription
+        invlists->free_codes(i);
         
         sizes.push_back((int)list_size);
         pointers.push_back(codes_list_float);
     }
 
-    //construct PipeCluster from the origional clusters' data.
+    sleep(10);
+
+    // Construct PipeCluster from the origional clusters' data.
     pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
     delete invlists;
     balanced = true;
@@ -865,8 +868,8 @@ void IndexIVFPipe::balance() {
 }
 
 void IndexIVFPipe::set_nprobe(size_t nprobe_) {
-        nprobe = nprobe_;
-    }
+    nprobe = nprobe_;
+}
 
 
 }
