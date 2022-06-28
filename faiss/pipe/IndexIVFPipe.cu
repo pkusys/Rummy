@@ -26,7 +26,7 @@
 #include <faiss/gpu/utils/DeviceDefs.cuh>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
-#include <faiss/gpu/GpuIndex.h>
+#include <faiss/pipe/SmallGpuIndex.h>
 #include <faiss/gpu/GpuResources.h>
 
 namespace faiss {
@@ -92,14 +92,14 @@ IndexIVFPipe::IndexIVFPipe(
 
                 if (!quantizer) {
                     // Construct an empty quantizer
-                    gpu::GpuIndexFlatConfig config = ivfPipeConfig_.flatConfig;
+                    gpu::SmallGpuIndexFlatConfig config = ivfPipeConfig_.flatConfig;
                     // FIXME: inherit our same device
                     config.device = config_.device;
 
                     if (metric_type == faiss::METRIC_L2) {
-                        quantizer = new gpu::GpuIndexFlatL2(resources_, d, config);
+                        quantizer = new gpu::SmallGpuIndexFlatL2(resources_, d, config);
                     } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-                        quantizer = new gpu::GpuIndexFlatIP(resources_, d, config);
+                        quantizer = new gpu::SmallGpuIndexFlatIP(resources_, d, config);
                     } else {
                         // unknown metric type
                         FAISS_THROW_FMT("unsupported metric type %d", (int)metric_type);
@@ -257,9 +257,7 @@ void IndexIVFPipe::addPage_(int n, const float* x, idx_t* coarse_ids) {
             makeTempAlloc(gpu::AllocType::Other, stream),
             {vecs.getSize(0), 1});
     quantizer->search(n, x_gpu, 1, listDistance.data(), listIds2d.data());
-    //gpu::FlatIndex* quantizer_ = quantizer->getGpuData();
-    //quantizer_->query(
-    //        vecs, 1, metric_type, metric_arg, listDistance, listIds2d, false);
+
     //copy coarse ids back to CPU
     gpu::fromDevice<idx_t, 2>(listIds2d, coarse_ids, stream);
 
@@ -451,30 +449,14 @@ void IndexIVFPipe::sample_list(
     gpu::DeviceScope scope(ivfPipeConfig_.device);
     auto stream = resources_->getDefaultStream(ivfPipeConfig_.device);
 
-    bool usePaged = false;
 
     double t2 = elapsed();
 
-    if (gpu::getDeviceForAddress(x) == -1) {
-        // It is possible that the user is querying for a vector set size
-        // `x` that won't fit on the GPU.
-        // In this case, we will have to handle paging of the data from CPU
-        // -> GPU.
-        // Currently, we don't handle the case where the output data won't
-        // fit on the GPU (e.g., n * k is too large for the GPU memory).
-        size_t dataSize = (size_t)n * this->d * sizeof(float);
+    FAISS_ASSERT (gpu::getDeviceForAddress(x) == -1);
 
-        size_t nprobeSize = (size_t)n * nprobe * sizeof(float);
+    
+    samplePaged_(n, x, nprobe, *coarse_dis, *ori_idx);
 
-        if (dataSize >= minPagedSize_ || nprobeSize >= minPagedSize_) {
-            sampleFromCpuPaged_(n, x, nprobe, *coarse_dis, *ori_idx);
-            usePaged = true;
-        }
-    }
-
-    if (!usePaged) {
-        sampleNonPaged_(n, x, nprobe, *coarse_dis, *ori_idx);
-    }
 
     printf("mere sample FINISHED in %.3f s\n", elapsed() - t2);
     t2 = elapsed();
@@ -523,7 +505,7 @@ void IndexIVFPipe::sample_list(
 }
 
 
-void IndexIVFPipe::sampleFromCpuPaged_(
+void IndexIVFPipe::samplePaged_(
         int n,
         const float* x,
         int nprobe,
@@ -531,14 +513,6 @@ void IndexIVFPipe::sampleFromCpuPaged_(
         int* coarse_ids) const {
 
     
-    // Is pinned memory available?
-    //auto pinnedAlloc = resources_->getPinnedMemory();
-    //int pageSizeInVecs =
-    //        (int)((pinnedAlloc.second / 2) / (sizeof(float) * this->d));
-
-    //if (!pinnedAlloc.first || pageSizeInVecs < 1) {
-        //printf("::paged but not truly use pinned mem\n");
-        // Just page without overlapping copy with compute
         int batchSize = gpu::utils::nextHighestPowerOf2(
                 (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
         int batchSize_ = gpu::utils::nextHighestPowerOf2(
@@ -563,169 +537,6 @@ void IndexIVFPipe::sampleFromCpuPaged_(
         }
 
         return;
-    //}
-    
-/*  printf("::truly use pinned mem\n");
-    //
-    // Pinned memory is available, so we can overlap copy with compute.
-    // We use two pinned memory buffers, and triple-buffer the
-    // procedure:
-    //
-    // 1 CPU copy -> pinned
-    // 2 pinned copy -> GPU
-    // 3 GPU compute
-    //
-    // 1 2 3 1 2 3 ...   (pinned buf A)
-    //   1 2 3 1 2 ...   (pinned buf B)
-    //     1 2 3 1 ...   (pinned buf A)
-    // time ->
-    //
-    auto defaultStream = resources_->getDefaultStream(ivfPipeConfig_.device);
-    auto copyStream = resources_->getAsyncCopyStream(ivfPipeConfig_.device);
-
-    FAISS_ASSERT(
-            (size_t)pageSizeInVecs * this->d <=
-            (size_t)std::numeric_limits<int>::max());
-
-    float* bufPinnedA = (float*)pinnedAlloc.first;
-    float* bufPinnedB = bufPinnedA + (size_t)pageSizeInVecs * this->d;
-    float* bufPinned[2] = {bufPinnedA, bufPinnedB};
-
-    // Reserve space on the GPU for the destination of the pinned buffer
-    // copy
-    gpu::DeviceTensor<float, 2, true> bufGpuA(
-            resources_.get(),
-            gpu::makeTempAlloc(gpu::AllocType::Other, defaultStream),
-            {(int)pageSizeInVecs, (int)this->d});
-    gpu::DeviceTensor<float, 2, true> bufGpuB(
-            resources_.get(),
-            gpu::makeTempAlloc(gpu::AllocType::Other, defaultStream),
-            {(int)pageSizeInVecs, (int)this->d});
-    gpu::DeviceTensor<float, 2, true>* bufGpus[2] = {&bufGpuA, &bufGpuB};
-
-    // Copy completion events for the pinned buffers
-    std::unique_ptr<gpu::CudaEvent> eventPinnedCopyDone[2];
-
-    // Execute completion events for the GPU buffers
-    std::unique_ptr<gpu::CudaEvent> eventGpuExecuteDone[2];
-
-    // All offsets are in terms of number of vectors; they remain within
-    // int bounds (as this function only handles max in vectors)
-
-    // Current start offset for buffer 1
-    int cur1 = 0;
-    int cur1BufIndex = 0;
-
-    // Current start offset for buffer 2
-    int cur2 = -1;
-    int cur2BufIndex = 0;
-
-    // Current start offset for buffer 3
-    int cur3 = -1;
-    int cur3BufIndex = 0;
-
-    while (cur3 < n) {
-        // Start async pinned -> GPU copy first (buf 2)
-        if (cur2 != -1 && cur2 < n) {
-            // Copy pinned to GPU
-            int numToCopy = std::min(pageSizeInVecs, n - cur2);
-
-            // Make sure any previous execution has completed before continuing
-            auto& eventPrev = eventGpuExecuteDone[cur2BufIndex];
-            if (eventPrev.get()) {
-                eventPrev->streamWaitOnEvent(copyStream);
-            }
-
-            CUDA_VERIFY(cudaMemcpyAsync(
-                    bufGpus[cur2BufIndex]->data(),
-                    bufPinned[cur2BufIndex],
-                    (size_t)numToCopy * this->d * sizeof(float),
-                    cudaMemcpyHostToDevice,
-                    copyStream));
-
-            // Mark a completion event in this stream
-            eventPinnedCopyDone[cur2BufIndex].reset(new gpu::CudaEvent(copyStream));
-
-            // We pick up from here
-            cur3 = cur2;
-            cur2 += numToCopy;
-            cur2BufIndex = (cur2BufIndex == 0) ? 1 : 0;
-        }
-
-        if (cur3 != -1 && cur3 < n) {
-            // Process on GPU
-            int numToProcess = std::min(pageSizeInVecs, n - cur3);
-
-            // Make sure the previous copy has completed before continuing
-            auto& eventPrev = eventPinnedCopyDone[cur3BufIndex];
-            FAISS_ASSERT(eventPrev.get());
-
-            eventPrev->streamWaitOnEvent(defaultStream);
-            auto stream = resources_->getDefaultStreamCurrentDevice();
-            // Create tensor wrappers
-            // DeviceTensor<float, 2, true> input(bufGpus[cur3BufIndex]->data(),
-            //                                    {numToProcess, this->d});
-            float* coarse_dis_slice = coarse_dis + cur3 * nprobe;
-            int* coarse_ids_slice = coarse_ids + cur3 * nprobe;
-
-
-            // Reserve space for the quantized information
-            gpu::DeviceTensor<float, 2, true> coarseDistances(
-                    resources_.get(),
-                    makeTempAlloc(gpu::AllocType::Other, stream),
-                    {numToProcess, nprobe});
-            gpu::DeviceTensor<int, 2, true> coarseIndices(
-                    resources_.get(),
-                    makeTempAlloc(gpu::AllocType::Other, stream),
-                    {numToProcess, nprobe});
-
-            // Find the `nprobe` closest lists; we can use int indices both
-            // internally and externally
-            gpu::FlatIndex* quantizer_ = quantizer->getGpuData();
-            quantizer_->query(
-                    *bufGpus[cur3BufIndex],
-                    nprobe,
-                    metric_type,
-                    metric_arg,
-                    coarseDistances,
-                    coarseIndices,
-                    false);
-
-            gpu::fromDevice<int, 2>(coarseIndices, coarse_ids_slice, stream);
-            gpu::fromDevice<float, 2>(coarseDistances, coarse_dis_slice, stream);
-
-            // Create completion event
-            eventGpuExecuteDone[cur3BufIndex].reset(
-                    new gpu::CudaEvent(defaultStream));
-
-            // We pick up from here
-            cur3BufIndex = (cur3BufIndex == 0) ? 1 : 0;
-            cur3 += numToProcess;
-        }
-
-        if (cur1 < n) {
-            // Copy CPU mem to CPU pinned
-            int numToCopy = std::min(pageSizeInVecs, n - cur1);
-
-            // Make sure any previous copy has completed before continuing
-            auto& eventPrev = eventPinnedCopyDone[cur1BufIndex];
-            if (eventPrev.get()) {
-                eventPrev->cpuWaitOnEvent();
-            }
-
-            memcpy(bufPinned[cur1BufIndex],
-                   x + (size_t)cur1 * this->d,
-                   (size_t)numToCopy * this->d * sizeof(float));
-
-            // We pick up from here
-            cur2 = cur1;
-            cur1 += numToCopy;
-            cur1BufIndex = (cur1BufIndex == 0) ? 1 : 0;
-        }
-    }
-
-    return;
-*/
 
 }
 

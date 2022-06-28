@@ -83,6 +83,8 @@ set(FAISS_SRC
   pipe/IndexIVFPipe.cu
   pipe/PipeCluster.cpp  
   pipe/RestrictedGpuResources.cpp
+  pipe/SmallGpuIndex.cu
+  pipe/SmallGpuIndexFlat.cu
 )
 
 set(FAISS_HEADERS
@@ -179,6 +181,9 @@ set(FAISS_HEADERS
   pipe/PipeCluster.h
   pipe/PipeStructure.h
   pipe/RestrictedGpuResources.h
+  pipe/SmallGpuIndex.h
+  pipe/SmallGpuIndexFlat.h
+
 )
 
 if(NOT WIN32)

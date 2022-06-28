@@ -6,7 +6,7 @@
  */
 
 #include <faiss/IndexFlat.h>
-#include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/pipe/SmallGpuIndexFlat.h>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
@@ -19,11 +19,11 @@
 namespace faiss {
 namespace gpu {
 
-GpuIndexFlat::GpuIndexFlat(
+SmallGpuIndexFlat::SmallGpuIndexFlat(
         GpuResourcesProvider* provider,
         const faiss::IndexFlat* index,
-        GpuIndexFlatConfig config)
-        : GpuIndex(
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndex(
                   provider->getResources(),
                   index->d,
                   index->metric_type,
@@ -36,11 +36,11 @@ GpuIndexFlat::GpuIndexFlat(
     copyFrom(index);
 }
 
-GpuIndexFlat::GpuIndexFlat(
+SmallGpuIndexFlat::SmallGpuIndexFlat(
         std::shared_ptr<GpuResources> resources,
         const faiss::IndexFlat* index,
-        GpuIndexFlatConfig config)
-        : GpuIndex(
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndex(
                   resources,
                   index->d,
                   index->metric_type,
@@ -53,12 +53,12 @@ GpuIndexFlat::GpuIndexFlat(
     copyFrom(index);
 }
 
-GpuIndexFlat::GpuIndexFlat(
+SmallGpuIndexFlat::SmallGpuIndexFlat(
         GpuResourcesProvider* provider,
         int dims,
         faiss::MetricType metric,
-        GpuIndexFlatConfig config)
-        : GpuIndex(provider->getResources(), dims, metric, 0, config),
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndex(provider->getResources(), dims, metric, 0, config),
           flatConfig_(config) {
     // Flat index doesn't need training
     this->is_trained = true;
@@ -73,12 +73,12 @@ GpuIndexFlat::GpuIndexFlat(
             config_.memorySpace));
 }
 
-GpuIndexFlat::GpuIndexFlat(
+SmallGpuIndexFlat::SmallGpuIndexFlat(
         std::shared_ptr<GpuResources> resources,
         int dims,
         faiss::MetricType metric,
-        GpuIndexFlatConfig config)
-        : GpuIndex(resources, dims, metric, 0, config), flatConfig_(config) {
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndex(resources, dims, metric, 0, config), flatConfig_(config) {
     // Flat index doesn't need training
     this->is_trained = true;
 
@@ -92,12 +92,12 @@ GpuIndexFlat::GpuIndexFlat(
             config_.memorySpace));
 }
 
-GpuIndexFlat::~GpuIndexFlat() {}
+SmallGpuIndexFlat::~SmallGpuIndexFlat() {}
 
-void GpuIndexFlat::copyFrom(const faiss::IndexFlat* index) {
+void SmallGpuIndexFlat::copyFrom(const faiss::IndexFlat* index) {
     DeviceScope scope(config_.device);
 
-    GpuIndex::copyFrom(index);
+    SmallGpuIndex::copyFrom(index);
 
     // GPU code has 32 bit indices
     FAISS_THROW_IF_NOT_FMT(
@@ -124,10 +124,10 @@ void GpuIndexFlat::copyFrom(const faiss::IndexFlat* index) {
     }
 }
 
-void GpuIndexFlat::copyTo(faiss::IndexFlat* index) const {
+void SmallGpuIndexFlat::copyTo(faiss::IndexFlat* index) const {
     DeviceScope scope(config_.device);
 
-    GpuIndex::copyTo(index);
+    SmallGpuIndex::copyTo(index);
     index->code_size = sizeof(float) * this->d;
 
     FAISS_ASSERT(data_);
@@ -146,11 +146,11 @@ void GpuIndexFlat::copyTo(faiss::IndexFlat* index) const {
     }
 }
 
-size_t GpuIndexFlat::getNumVecs() const {
+size_t SmallGpuIndexFlat::getNumVecs() const {
     return this->ntotal;
 }
 
-void GpuIndexFlat::reset() {
+void SmallGpuIndexFlat::reset() {
     DeviceScope scope(config_.device);
 
     // Free the underlying memory
@@ -158,11 +158,11 @@ void GpuIndexFlat::reset() {
     this->ntotal = 0;
 }
 
-void GpuIndexFlat::train(Index::idx_t n, const float* x) {
+void SmallGpuIndexFlat::train(Index::idx_t n, const float* x) {
     // nothing to do
 }
 
-void GpuIndexFlat::add(Index::idx_t n, const float* x) {
+void SmallGpuIndexFlat::add(Index::idx_t n, const float* x) {
     FAISS_THROW_IF_NOT_MSG(this->is_trained, "Index not trained");
 
     // For now, only support <= max int results
@@ -188,15 +188,15 @@ void GpuIndexFlat::add(Index::idx_t n, const float* x) {
         addImpl_(n, x, nullptr);
     } else {
         // Otherwise, perform the paging
-        GpuIndex::add(n, x);
+        SmallGpuIndex::add(n, x);
     }
 }
 
-bool GpuIndexFlat::addImplRequiresIDs_() const {
+bool SmallGpuIndexFlat::addImplRequiresIDs_() const {
     return false;
 }
 
-void GpuIndexFlat::addImpl_(int n, const float* x, const Index::idx_t* ids) {
+void SmallGpuIndexFlat::addImpl_(int n, const float* x, const Index::idx_t* ids) {
     FAISS_ASSERT(data_);
     FAISS_ASSERT(n > 0);
 
@@ -214,7 +214,7 @@ void GpuIndexFlat::addImpl_(int n, const float* x, const Index::idx_t* ids) {
     this->ntotal += n;
 }
 
-void GpuIndexFlat::searchImpl_(
+void SmallGpuIndexFlat::searchImpl_(
         int n,
         const float* x,
         int k,
@@ -244,7 +244,7 @@ void GpuIndexFlat::searchImpl_(
     convertTensor<int, Index::idx_t, 2>(stream, outIntLabels, outLabels);
 }
 
-void GpuIndexFlat::reconstruct(Index::idx_t key, float* out) const {
+void SmallGpuIndexFlat::reconstruct(Index::idx_t key, float* out) const {
     DeviceScope scope(config_.device);
 
     FAISS_THROW_IF_NOT_MSG(key < this->ntotal, "index out of bounds");
@@ -260,7 +260,7 @@ void GpuIndexFlat::reconstruct(Index::idx_t key, float* out) const {
     }
 }
 
-void GpuIndexFlat::reconstruct_n(Index::idx_t i0, Index::idx_t num, float* out)
+void SmallGpuIndexFlat::reconstruct_n(Index::idx_t i0, Index::idx_t num, float* out)
         const {
     DeviceScope scope(config_.device);
 
@@ -278,14 +278,14 @@ void GpuIndexFlat::reconstruct_n(Index::idx_t i0, Index::idx_t num, float* out)
     }
 }
 
-void GpuIndexFlat::compute_residual(
+void SmallGpuIndexFlat::compute_residual(
         const float* x,
         float* residual,
         Index::idx_t key) const {
     compute_residual_n(1, x, residual, &key);
 }
 
-void GpuIndexFlat::compute_residual_n(
+void SmallGpuIndexFlat::compute_residual_n(
         Index::idx_t n,
         const float* xs,
         float* residuals,
@@ -330,96 +330,96 @@ void GpuIndexFlat::compute_residual_n(
 }
 
 //
-// GpuIndexFlatL2
+// SmallGpuIndexFlatL2
 //
 
-GpuIndexFlatL2::GpuIndexFlatL2(
+SmallGpuIndexFlatL2::SmallGpuIndexFlatL2(
         GpuResourcesProvider* provider,
         faiss::IndexFlatL2* index,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(provider, index, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(provider, index, config) {}
 
-GpuIndexFlatL2::GpuIndexFlatL2(
+SmallGpuIndexFlatL2::SmallGpuIndexFlatL2(
         std::shared_ptr<GpuResources> resources,
         faiss::IndexFlatL2* index,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(resources, index, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(resources, index, config) {}
 
-GpuIndexFlatL2::GpuIndexFlatL2(
+SmallGpuIndexFlatL2::SmallGpuIndexFlatL2(
         GpuResourcesProvider* provider,
         int dims,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(provider, dims, faiss::METRIC_L2, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(provider, dims, faiss::METRIC_L2, config) {}
 
-GpuIndexFlatL2::GpuIndexFlatL2(
+SmallGpuIndexFlatL2::SmallGpuIndexFlatL2(
         std::shared_ptr<GpuResources> resources,
         int dims,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(resources, dims, faiss::METRIC_L2, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(resources, dims, faiss::METRIC_L2, config) {}
 
-void GpuIndexFlatL2::copyFrom(faiss::IndexFlat* index) {
+void SmallGpuIndexFlatL2::copyFrom(faiss::IndexFlat* index) {
     FAISS_THROW_IF_NOT_MSG(
             index->metric_type == metric_type,
-            "Cannot copy a GpuIndexFlatL2 from an index of "
+            "Cannot copy a SmallGpuIndexFlatL2 from an index of "
             "different metric_type");
 
-    GpuIndexFlat::copyFrom(index);
+    SmallGpuIndexFlat::copyFrom(index);
 }
 
-void GpuIndexFlatL2::copyTo(faiss::IndexFlat* index) {
+void SmallGpuIndexFlatL2::copyTo(faiss::IndexFlat* index) {
     FAISS_THROW_IF_NOT_MSG(
             index->metric_type == metric_type,
-            "Cannot copy a GpuIndexFlatL2 to an index of "
+            "Cannot copy a SmallGpuIndexFlatL2 to an index of "
             "different metric_type");
 
-    GpuIndexFlat::copyTo(index);
+    SmallGpuIndexFlat::copyTo(index);
 }
 
 //
-// GpuIndexFlatIP
+// SmallGpuIndexFlatIP
 //
 
-GpuIndexFlatIP::GpuIndexFlatIP(
+SmallGpuIndexFlatIP::SmallGpuIndexFlatIP(
         GpuResourcesProvider* provider,
         faiss::IndexFlatIP* index,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(provider, index, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(provider, index, config) {}
 
-GpuIndexFlatIP::GpuIndexFlatIP(
+SmallGpuIndexFlatIP::SmallGpuIndexFlatIP(
         std::shared_ptr<GpuResources> resources,
         faiss::IndexFlatIP* index,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(resources, index, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(resources, index, config) {}
 
-GpuIndexFlatIP::GpuIndexFlatIP(
+SmallGpuIndexFlatIP::SmallGpuIndexFlatIP(
         GpuResourcesProvider* provider,
         int dims,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(provider, dims, faiss::METRIC_INNER_PRODUCT, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(provider, dims, faiss::METRIC_INNER_PRODUCT, config) {}
 
-GpuIndexFlatIP::GpuIndexFlatIP(
+SmallGpuIndexFlatIP::SmallGpuIndexFlatIP(
         std::shared_ptr<GpuResources> resources,
         int dims,
-        GpuIndexFlatConfig config)
-        : GpuIndexFlat(resources, dims, faiss::METRIC_INNER_PRODUCT, config) {}
+        SmallGpuIndexFlatConfig config)
+        : SmallGpuIndexFlat(resources, dims, faiss::METRIC_INNER_PRODUCT, config) {}
 
-void GpuIndexFlatIP::copyFrom(faiss::IndexFlat* index) {
+void SmallGpuIndexFlatIP::copyFrom(faiss::IndexFlat* index) {
     FAISS_THROW_IF_NOT_MSG(
             index->metric_type == metric_type,
-            "Cannot copy a GpuIndexFlatIP from an index of "
+            "Cannot copy a SmallGpuIndexFlatIP from an index of "
             "different metric_type");
 
-    GpuIndexFlat::copyFrom(index);
+    SmallGpuIndexFlat::copyFrom(index);
 }
 
-void GpuIndexFlatIP::copyTo(faiss::IndexFlat* index) {
+void SmallGpuIndexFlatIP::copyTo(faiss::IndexFlat* index) {
     // The passed in index must be IP
     FAISS_THROW_IF_NOT_MSG(
             index->metric_type == metric_type,
-            "Cannot copy a GpuIndexFlatIP to an index of "
+            "Cannot copy a SmallGpuIndexFlatIP to an index of "
             "different metric_type");
 
-    GpuIndexFlat::copyTo(index);
+    SmallGpuIndexFlat::copyTo(index);
 }
 
 } // namespace gpu

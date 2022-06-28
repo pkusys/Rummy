@@ -11,7 +11,7 @@
 #include <faiss/Clustering.h>
 #include <faiss/Index.h>
 #include <faiss/MetricType.h>
-#include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/pipe/SmallGpuIndexFlat.h>
 #include <faiss/gpu/GpuIndicesOptions.h>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/pipe/IndexFlatPipe.h>
@@ -34,7 +34,7 @@ struct IndexIVFPipeConfig {
     gpu::IndicesOptions indicesOptions;
 
     /// Configuration for the coarse quantizer object
-    gpu::GpuIndexFlatConfig flatConfig;
+    gpu::SmallGpuIndexFlatConfig flatConfig;
 
     /// GPU device on which the index is resident
     int device;
@@ -74,7 +74,7 @@ struct IndexIVFPipe: Index {
     using idx_t = int64_t;
     bool verbose;
 
-    gpu::GpuIndexFlat* quantizer; ///< quantizer that maps vectors to inverted lists
+    gpu::SmallGpuIndexFlat* quantizer; ///< quantizer that maps vectors to inverted lists
     InvertedLists* invlists;
 
     ClusteringParameters cp; ///< to override default clustering params
@@ -269,7 +269,7 @@ struct IndexIVFPipe: Index {
      * @param coarse_dis[n][nprobe] the matrix of distance between origional clusters and queries
      * @param coarse_ids[n][nprobe] the matrix of id of origional clusters
      */
-    void sampleFromCpuPaged_(
+    void samplePaged_(
         int n,
         const float* x,
         int nprobe,

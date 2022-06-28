@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <faiss/gpu/GpuIndex.h>
+#include <faiss/pipe/SmallGpuIndex.h>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
@@ -19,34 +19,25 @@
 namespace faiss {
 namespace gpu {
 
-/// Default CPU search size for which we use paged copies
-constexpr size_t kMinPageSize = (size_t)256 * 1024 * 1024;
+/// control the size of max memory used.
+constexpr size_t MaxMemSize = (size_t)512 * 1024;
 
-/// Size above which we page copies from the CPU to GPU (non-paged
-/// memory usage)
-constexpr size_t kNonPinnedPageSize = (size_t)256 * 1024 * 1024;
-
-// Default size for which we page add or search
-constexpr size_t kAddPageSize = (size_t)256 * 1024 * 1024;
-
-// Or, maximum number of vectors to consider per page of add or search
-constexpr size_t kAddVecSize = (size_t)256 * 1024 * 1024;
 
 // Use a smaller search size, as precomputed code usage on IVFPQ
 // requires substantial amounts of memory
 // FIXME: parameterize based on algorithm need
 constexpr size_t kSearchVecSize = (size_t)32 * 1024;
 
-GpuIndex::GpuIndex(
+SmallGpuIndex::SmallGpuIndex(
         std::shared_ptr<GpuResources> resources,
         int dims,
         faiss::MetricType metric,
         float metricArg,
-        GpuIndexConfig config)
+        SmallGpuIndexConfig config)
         : Index(dims, metric),
           resources_(resources),
           config_(config),
-          minPagedSize_(kMinPageSize) {
+          minPagedSize_(MaxMemSize) {
     FAISS_THROW_IF_NOT_FMT(
             config_.device < getNumDevices(),
             "Invalid GPU device %d",
@@ -67,11 +58,11 @@ GpuIndex::GpuIndex(
     resources_->initializeForDevice(config_.device);
 }
 
-int GpuIndex::getDevice() const {
+int SmallGpuIndex::getDevice() const {
     return config_.device;
 }
 
-void GpuIndex::copyFrom(const faiss::Index* index) {
+void SmallGpuIndex::copyFrom(const faiss::Index* index) {
     d = index->d;
     metric_type = index->metric_type;
     metric_arg = index->metric_arg;
@@ -79,7 +70,7 @@ void GpuIndex::copyFrom(const faiss::Index* index) {
     is_trained = index->is_trained;
 }
 
-void GpuIndex::copyTo(faiss::Index* index) const {
+void SmallGpuIndex::copyTo(faiss::Index* index) const {
     index->d = d;
     index->metric_type = metric_type;
     index->metric_arg = metric_arg;
@@ -87,20 +78,20 @@ void GpuIndex::copyTo(faiss::Index* index) const {
     index->is_trained = is_trained;
 }
 
-void GpuIndex::setMinPagingSize(size_t size) {
+void SmallGpuIndex::setMinPagingSize(size_t size) {
     minPagedSize_ = size;
 }
 
-size_t GpuIndex::getMinPagingSize() const {
+size_t SmallGpuIndex::getMinPagingSize() const {
     return minPagedSize_;
 }
 
-void GpuIndex::add(Index::idx_t n, const float* x) {
+void SmallGpuIndex::add(Index::idx_t n, const float* x) {
     // Pass to add_with_ids
     add_with_ids(n, x, nullptr);
 }
 
-void GpuIndex::add_with_ids(
+void SmallGpuIndex::add_with_ids(
         Index::idx_t n,
         const float* x,
         const Index::idx_t* ids) {
@@ -132,14 +123,14 @@ void GpuIndex::add_with_ids(
     addPaged_((int)n, x, ids ? ids : generatedIds.data());
 }
 
-void GpuIndex::addPaged_(int n, const float* x, const Index::idx_t* ids) {
+void SmallGpuIndex::addPaged_(int n, const float* x, const Index::idx_t* ids) {
     if (n > 0) {
         size_t totalSize = (size_t)n * this->d * sizeof(float);
 
-        if (totalSize > kAddPageSize || n > kAddVecSize) {
-            // How many vectors fit into kAddPageSize?
+        if (totalSize > MaxMemSize || n > MaxMemSize) {
+            // How many vectors fit into MaxMemSize?
             size_t maxNumVecsForPageSize =
-                    kAddPageSize / ((size_t)this->d * sizeof(float));
+                    MaxMemSize / ((size_t)this->d * sizeof(float));
 
             // Always add at least 1 vector, if we have huge vectors
             maxNumVecsForPageSize = std::max(maxNumVecsForPageSize, (size_t)1);
@@ -161,7 +152,7 @@ void GpuIndex::addPaged_(int n, const float* x, const Index::idx_t* ids) {
     }
 }
 
-void GpuIndex::addPage_(int n, const float* x, const Index::idx_t* ids) {
+void SmallGpuIndex::addPage_(int n, const float* x, const Index::idx_t* ids) {
     // At this point, `x` can be resident on CPU or GPU, and `ids` may be
     // resident on CPU, GPU or may be null.
     //
@@ -190,7 +181,7 @@ void GpuIndex::addPage_(int n, const float* x, const Index::idx_t* ids) {
     }
 }
 
-void GpuIndex::assign(
+void SmallGpuIndex::assign(
         Index::idx_t n,
         const float* x,
         Index::idx_t* labels,
@@ -224,7 +215,7 @@ void GpuIndex::assign(
     search(n, x, k, distances.data(), labels);
 }
 
-void GpuIndex::search(
+void SmallGpuIndex::search(
         Index::idx_t n,
         const float* x,
         Index::idx_t k,
@@ -300,7 +291,7 @@ void GpuIndex::search(
     fromDevice<Index::idx_t, 2>(outLabels, labels, stream);
 }
 
-void GpuIndex::searchNonPaged_(
+void SmallGpuIndex::searchNonPaged_(
         int n,
         const float* x,
         int k,
@@ -320,7 +311,7 @@ void GpuIndex::searchNonPaged_(
     searchImpl_(n, vecs.data(), k, outDistancesData, outIndicesData);
 }
 
-void GpuIndex::searchFromCpuPaged_(
+void SmallGpuIndex::searchFromCpuPaged_(
         int n,
         const float* x,
         int k,
@@ -333,11 +324,12 @@ void GpuIndex::searchFromCpuPaged_(
     auto pinnedAlloc = resources_->getPinnedMemory();
     int pageSizeInVecs =
             (int)((pinnedAlloc.second / 2) / (sizeof(float) * this->d));
+    pageSizeInVecs = std::min(pageSizeInVecs, (int)(MaxMemSize/(sizeof(float) * this->d)));
 
     if (!pinnedAlloc.first || pageSizeInVecs < 1) {
         // Just page without overlapping copy with compute
         int batchSize = utils::nextHighestPowerOf2(
-                (int)((size_t)kNonPinnedPageSize / (sizeof(float) * this->d)));
+                (int)((size_t)MaxMemSize / (sizeof(float) * this->d)));
 
         for (int cur = 0; cur < n; cur += batchSize) {
             int num = std::min(batchSize, n - cur);
@@ -496,14 +488,14 @@ void GpuIndex::searchFromCpuPaged_(
     }
 }
 
-void GpuIndex::compute_residual(
+void SmallGpuIndex::compute_residual(
         const float* x,
         float* residual,
         Index::idx_t key) const {
     FAISS_THROW_MSG("compute_residual not implemented for this type of index");
 }
 
-void GpuIndex::compute_residual_n(
+void SmallGpuIndex::compute_residual_n(
         Index::idx_t n,
         const float* xs,
         float* residuals,
@@ -512,7 +504,7 @@ void GpuIndex::compute_residual_n(
             "compute_residual_n not implemented for this type of index");
 }
 
-std::shared_ptr<GpuResources> GpuIndex::getResources() {
+std::shared_ptr<GpuResources> SmallGpuIndex::getResources() {
     return resources_;
 }
 
