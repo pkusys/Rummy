@@ -451,15 +451,15 @@ void IndexIVFPipe::sample_list(
 
     gpu::DeviceScope scope(ivfPipeConfig_.device);
 
-    double t2 = elapsed();
+    // double t2 = elapsed();
 
     FAISS_ASSERT (gpu::getDeviceForAddress(x) == -1);
 
     
     samplePaged_(n, x, nprobe, *coarse_dis, *ori_idx);
 
-    printf("mere sample FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    t2 = elapsed();
+    // printf("mere sample FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
 
 
 #pragma omp parallel for if (nt > 1)
@@ -473,8 +473,8 @@ void IndexIVFPipe::sample_list(
         (*bcluster_cnt)[i] = offset;
     }
 
-    printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    t2 = elapsed();
+    // printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
 
     size_t max_bclusters_cnt = 0;
     for (int i = 0; i < n; i++){
@@ -484,8 +484,8 @@ void IndexIVFPipe::sample_list(
     *pipe_cluster_idx = new int[n * max_bclusters_cnt];
     auto p = *pipe_cluster_idx;
 
-    printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    t2 = elapsed();
+    // printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
 
     
 #pragma omp parallel for if (nt > 1)
@@ -498,8 +498,8 @@ void IndexIVFPipe::sample_list(
         }
     }
     
-    printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    t2 = elapsed();
+    // printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
 
     return;
 }
@@ -858,7 +858,7 @@ void IndexIVFPipe::balance() {
         pointers.push_back(codes_list_float);
     }
 
-    sleep(10);
+    // sleep(10);
 
     // Construct PipeCluster from the origional clusters' data.
     pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
