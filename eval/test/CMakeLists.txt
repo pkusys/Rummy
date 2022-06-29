@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) zili zhang & fangyue liu @PKU.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -21,3 +21,6 @@ target_link_libraries(test_gpu_quantizer_bug PRIVATE faiss)
 
 add_executable(test_heap EXCLUDE_FROM_ALL test_heap.cpp)
 target_link_libraries(test_heap PRIVATE faiss)
+
+add_executable(test_multi_sort EXCLUDE_FROM_ALL test_multi_sort.cpp)
+target_link_libraries(test_multi_sort PRIVATE faiss)

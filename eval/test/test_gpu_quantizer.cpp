@@ -80,7 +80,7 @@ int main() {
     std::vector<float> queries;
         
     int i0 = 1234;
-    int i1 = 1234 + 512;
+    int i1 = 1234 + 256;
 
     nq = i1 - i0;
 
@@ -106,6 +106,11 @@ int main() {
     }
 
     omp_set_num_threads(8);
+#pragma omp parallel for
+    for (int i = 0; i < 8; i++){
+        if (i == 0)
+            printf("omp is %d ", omp_in_parallel());
+    }
 
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
     t1 = elapsed();
@@ -127,15 +132,15 @@ int main() {
     for (int i = 0; i < 16; i++)
         printf("%d\n", index->get_list_size(i));
     printf("Prepare delete\n");
-    sleep(5);
+    sleep(1);
     delete[] database;
     printf("delete finishing\n");
-    sleep(5);
+    sleep(1);
     printf("Add finishing\n");
-    sleep(15);
+    sleep(1);
     index->balance();
     printf("Balance finishing\n");
-    sleep(15);
+    sleep(1);
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
     t1 = elapsed();

@@ -12,7 +12,17 @@
 #include <vector>
 #include <algorithm>
 #include <iostream>
-#include <iomanip> 
+#include <iomanip>
+#include <omp.h>
+
+#include <sys/time.h>
+#include <unistd.h>
+
+// double time() {
+//     struct timeval tv;
+//     gettimeofday(&tv, NULL);
+//     return tv.tv_sec + tv.tv_usec * 1e-6;
+// }
 
 namespace faiss {
 
@@ -635,4 +645,69 @@ void PipeAVLTree<K, V>::print()
         print(root, root->key, root->val, 0);    
 }
 
+
+
+/// Comparison function for Multi-Thread Sort
+template <class K, class V>
+bool Com(std::pair<K,V> a, std::pair<K,V> b){
+    // In Ascending order
+    return a.first < b.second;
 }
+
+/// Merge Operation (Ascending order)
+template <class K, class V>
+void merge(int n1, int n2, std::pair<K,V> *a1, std::pair<K,V> *a2,
+        std::pair<K,V> *res){
+    int ind1 = 0, ind2 = 0, ind = 0;
+    while(ind1 < n1 && ind2 < n2){
+        if (Com(a1[ind1], a2[ind2])){
+            res[ind++] = a1[ind1++];
+        }
+        else{
+            res[ind++] = a2[ind2++];
+        }
+    }
+    while(ind1 < n1){
+        res[ind++] = a1[ind1++];
+    }
+    while(ind2 < n2){
+        res[ind++] = a2[ind2++];
+    }
+    FAISS_ASSERT(ind == n1 + n2);
+    FAISS_ASSERT(ind1 == n1);
+    FAISS_ASSERT(ind2 == n2);
+}
+
+/// Multi-Thread Sort
+template <class K, class V>
+void multi_sort(std::pair<K,V>* p, int size){
+
+    if (size == 0)
+        return;
+
+    int nt = std::min(omp_get_max_threads(), size);
+    // Round Up
+    int slice = (size + nt - 1) / nt;
+
+    std::cout << "Multi-Thread Sort with thread number : " << nt << "\n";
+
+#pragma omp parallel for
+    for (int i = 0; i < nt; i++){
+        int start = i * slice;
+        int end = std::min(start + slice, size);
+        std::sort(p + start, p + end, Com<K, V>);
+    }
+
+    std::vector<std::pair<K,V> > vec(size);
+
+    int stand = slice;
+    for (int i = 0; i < nt - 1; i++){
+        int end = std::min(stand + slice, size);
+        merge<K, V> (stand, end - stand, p, p + stand, vec.data());
+        stand += slice;
+        stand = std::min(size, stand);
+        memcpy(p, vec.data(), sizeof(p[0]) * stand);
+    }
+}
+
+} //namespace faiss

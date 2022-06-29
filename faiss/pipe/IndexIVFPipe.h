@@ -22,6 +22,13 @@
 
 namespace faiss {
 
+// For benchmark
+// static double elapsed() {
+//     struct timeval tv;
+//     gettimeofday(&tv, NULL);
+//     return tv.tv_sec + tv.tv_usec * 1e-6;
+// }
+
 struct IndexIVFPipeConfig {
     inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_64_BIT),\
                 device(0), memorySpace(gpu::MemorySpace::Device) {}
@@ -252,15 +259,108 @@ struct IndexIVFPipe: Index {
      * @param batch_width the maximum numbers of balanced vectors for one query in this case
      */
     void sample_list(
-        idx_t n,
-        const float* x,
-        float** coarse_dis,
-        int** ori_idx,
-        idx_t** ori_offset,
-        size_t** bcluster_cnt,
-        size_t *actual_nprobe,
-        int** pipe_cluster_idx,
-        size_t* batch_width);
+            idx_t n,
+            const float* x,
+            float** coarse_dis,
+            int** ori_idx,
+            idx_t** ori_offset,
+            size_t** bcluster_cnt,
+            size_t *actual_nprobe,
+            int** pipe_cluster_idx,
+            size_t* batch_width) {
+    /** It is a sad fact of software that a conceptually simple function like this
+    * becomes very complex when you factor in several ways of parallelizing +
+    * interrupt/error handling + collecting stats + min/max collection. The
+    * codepath that is used 95% of time is the one for parallel_mode = 0 */
+
+
+    FAISS_THROW_IF_NOT_MSG(this->is_trained, "Index not trained");
+
+    if (!balanced) {
+        balance();
+    }
+
+    FAISS_THROW_IF_NOT_MSG(this->balanced, "Index not balanced");
+
+    // For now, only support <= max int results
+    FAISS_THROW_IF_NOT_FMT(
+            n <= (Index::idx_t)std::numeric_limits<int>::max(),
+            "GPU index only supports up to %d indices",
+            std::numeric_limits<int>::max());
+
+    if (n == 0) {
+        // nothing to search
+        return;
+    }
+    
+    const size_t nprobe = std::min(nlist, this->nprobe);
+    *actual_nprobe = nprobe;
+    FAISS_THROW_IF_NOT(nprobe > 0);
+
+    *coarse_dis = new float[n * nprobe];
+    *ori_idx = new int[n * nprobe];
+    *ori_offset = new idx_t[n * nprobe];
+    *bcluster_cnt = new size_t[n];
+
+    int nt = std::min(omp_get_max_threads(), int(n));
+
+
+    gpu::DeviceScope scope(ivfPipeConfig_.device);
+
+    // double t2 = elapsed();
+
+    FAISS_ASSERT (gpu::getDeviceForAddress(x) == -1);
+
+    
+    samplePaged_(n, x, nprobe, *coarse_dis, *ori_idx);
+
+    // printf("mere sample FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
+
+
+#pragma omp parallel for if (nt > 1)
+    for (size_t i = 0; i < n; i++) {
+        // if (i == 0)
+        //     printf("%d haha\n", omp_in_parallel());
+        std::vector<int> clusters_query;
+        size_t offset = 0;
+        for (size_t j = 0; j < nprobe; j++) {
+            (*ori_offset)[i * nprobe + j] = offset;
+            offset += (size_t)(pipe_cluster->O2Bcnt[(*ori_idx)[i * nprobe + j]]);                           
+        }
+        (*bcluster_cnt)[i] = offset;
+    }
+
+    // printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
+
+    size_t max_bclusters_cnt = 0;
+    for (int i = 0; i < n; i++){
+        max_bclusters_cnt = std::max (max_bclusters_cnt, (*bcluster_cnt)[i]);
+    }
+    *batch_width = max_bclusters_cnt;
+    *pipe_cluster_idx = new int[n * max_bclusters_cnt];
+    auto p = *pipe_cluster_idx;
+
+    // printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
+
+    
+#pragma omp parallel for if (nt > 1)
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = 0; j < nprobe; j++) {
+            idx_t offset = (*ori_offset)[i * nprobe + j] ;
+            std::vector<int> &bclusters_probe =
+                         pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
+            memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), bclusters_probe.size() * sizeof(int));                              
+        }
+    }
+    
+    // printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    // t2 = elapsed();
+
+    return;
+}
 
     /** sample the origional clusters to be searched on, before paged
      * @param n number of queries

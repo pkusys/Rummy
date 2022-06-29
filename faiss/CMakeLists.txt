@@ -183,7 +183,6 @@ set(FAISS_HEADERS
   pipe/RestrictedGpuResources.h
   pipe/SmallGpuIndex.h
   pipe/SmallGpuIndexFlat.h
-
 )
 
 if(NOT WIN32)
@@ -234,9 +233,10 @@ endif()
 target_compile_definitions(faiss PRIVATE FINTEGER=int)
 target_compile_definitions(faiss_avx2 PRIVATE FINTEGER=int)
 
+# Set the TAG as PUBLIC to link .h file with omp
 find_package(OpenMP REQUIRED)
-target_link_libraries(faiss PRIVATE OpenMP::OpenMP_CXX)
-target_link_libraries(faiss_avx2 PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(faiss PUBLIC OpenMP::OpenMP_CXX)
+target_link_libraries(faiss_avx2 PUBLIC OpenMP::OpenMP_CXX)
 
 find_package(MKL)
 if(MKL_FOUND)
