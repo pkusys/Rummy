@@ -407,8 +407,8 @@ MemBlock PipeGpuResources::allocMemory(int size){
         // Free these pages
         for (int i = freecnt; i < size; i++){
             int id = alloc[i];
+            pc_->setonDevice(pageinfo[id], id, false, false);
             pageinfo[id] = -1;
-            pc_->setonDevice(id, false, false);
         }
         std::sort(alloc.begin(), alloc.end());
         best.pages = std::move(alloc);
@@ -433,7 +433,7 @@ void PipeGpuResources::updatePages(const std::vector<int> &pages,
         pageinfo[i] = clus[i];
 
         // Update pointer pipecluster
-        pc_->setonDevice(clus[i], true);
+        pc_->setonDevice(clus[i], pages[i], true);
     }
 }
 

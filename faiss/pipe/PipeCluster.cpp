@@ -247,14 +247,14 @@ void PipeCluster::freeMem(){
     }
 }
 
-void PipeCluster::setPinnedonDevice(int id, bool b){
+void PipeCluster::setPinnedonDevice(int id, int page_id, bool b, bool avl){
     // Set the status
     isPinnedDevice[id] = b;
-    if (b){
-        LRUtree_->remove(readGlobalCount(id), id);
+    if (avl){
+        LRUtree_->remove(readGlobalCount(id), page_id);
     }
     else{
-        LRUtree_->insert(readGlobalCount(id), id);
+        LRUtree_->insert(readGlobalCount(id), page_id);
     }
 }
 
@@ -263,15 +263,15 @@ bool PipeCluster::readPinnedonDevice(int id){
     return isPinnedDevice[id];
 }
 
-void PipeCluster::setonDevice(int id, bool b, bool avl){
+void PipeCluster::setonDevice(int id, int page_id, bool b, bool avl){
     // Set the status
     isonDevice[id] = b;
     if (avl){
         if (b){
-            LRUtree_->insert(readGlobalCount(id), id);
+            LRUtree_->insert(readGlobalCount(id), page_id);
         }
         else{
-            LRUtree_->remove(readGlobalCount(id), id);
+            LRUtree_->remove(readGlobalCount(id), page_id);
         }
     }
 }

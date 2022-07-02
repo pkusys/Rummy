@@ -43,14 +43,14 @@ public:
     void freeMem();
 
     // Set the balanced clusters's pinned status on device
-    void setPinnedonDevice(int id, bool b);
+    void setPinnedonDevice(int id, int page_id, bool b, bool avl = true);
 
     // Check the balanced clusters's pinned status
     bool readPinnedonDevice(int id);
 
     // Set the balanced clusters's status on device 
     // (avl means if you want to change the avl tree)
-    void setonDevice(int id, bool b, bool avl = true);
+    void setonDevice(int clu_id, int page_id, bool b, bool avl = true);
 
     // Return if the cluster is on device
     bool readonDevice(int id);
@@ -63,7 +63,7 @@ public:
 
 public:
     /// AVL Tree to manage the allocated clusters 
-    /// (Key-Value: LRU count -> offset) 
+    /// (Key-Value: LRU count -> page id) 
     /// (only contains no-pinned clusters on device)
     std::unique_ptr<PipeAVLTree<int,int> > LRUtree_;
 

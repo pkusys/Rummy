@@ -65,11 +65,11 @@ int main(){
     faiss::gpu::MemBlock mb = pg.allocMemory(100);
     for(int i= 0; i < mb.pages.size(); i++){
         // pc->addGlobalCount(i, i);
-        pc->setonDevice(i, true);
+        pc->setonDevice(i, mb.pages[i], true);
     }
     for(int i = 0; i < mb.pages.size(); i++){
         pg.pageinfo[mb.pages[i]] = 1;
-        // pc->setPinnedonDevice(mb.pages[i], true); // test if pinned api modify LRU_TREE
+        // pc->setPinnedonDevice(i, mb.pages[i], true); // test if pinned api modify LRU_TREE
     }
     t1 = elapsed();
     printf("Alloc Time: %f ms\n", (t1 - t0)*1000);
