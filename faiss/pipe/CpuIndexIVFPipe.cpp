@@ -689,7 +689,7 @@ void CpuIndexIVFPipe::balance() {
     }
 
     //construct PipeCluster from the origional clusters' data.
-    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
+    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers, true);
     delete invlists;
     balanced = true;
 

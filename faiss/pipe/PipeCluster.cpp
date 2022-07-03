@@ -44,7 +44,7 @@ float StdDev (std::vector<int> vec){
 //
 
 PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes, 
-            std::vector<float *> & pointers){
+            std::vector<float *> & pointers, bool interleaved_){
     
     // Initialize some attributes
     nlist = nlist_;
@@ -52,6 +52,8 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     d = d_;
 
     CluSize = sizes;
+
+    interleaved = interleaved_;
 
     noPinnedMem = pointers;
 
@@ -163,28 +165,63 @@ void PipeCluster::mallocPinnedMem(){
         int num = balaClu.size();
         float *nop = noPinnedMem[i];
         
-        for(int j = 0; j < num; j++){
-            size_t bytes = BCluSize[index] * d * sizeof(float);
-            float *p;
+        if (!interleaved) {
+            for(int j = 0; j < num; j++){
+                size_t bytes = BCluSize[index] * d * sizeof(float);
+                float *p;
 
-            // Malloc pinned memory
-            auto error = cudaMallocHost((void **) &p, bytes);
-            FAISS_ASSERT_FMT(
-                    error == cudaSuccess,
-                    "Failed to malloc pinned memory: %d vectors (error %d %s)",
-                    BCluSize[index],
-                    (int)error,
-                    cudaGetErrorString(error));
+                // Malloc pinned memory
+                auto error = cudaMallocHost((void **) &p, bytes);
+                FAISS_ASSERT_FMT(
+                        error == cudaSuccess,
+                        "Failed to malloc pinned memory: %d vectors (error %d %s)",
+                        BCluSize[index],
+                        (int)error,
+                        cudaGetErrorString(error));
 
-            // Substitute pinned memory for nopinned
-            memcpy(p, nop, bytes);
+                // Substitute pinned memory for nopinned
+                memcpy(p, nop, bytes);
 
-            Mem[index] = p;
+                Mem[index] = p;
 
-            // ADD the original memory address
-            nop = nop + bytes/sizeof(float);
-            index++;
+                // ADD the original memory address
+                nop = nop + bytes/sizeof(float);
+                index++;
+            }
         }
+        else{
+            for(int j = 0; j < num; j++){
+                size_t nobytes = BCluSize[index] * d * sizeof(float);
+                size_t bytes = BCluSize[index] % 32 == 0 ? BCluSize[index] : BCluSize[index] / 32 * 32 + 32 ;
+                bytes *= d * sizeof(float);
+                float *p;
+
+                // Malloc pinned memory
+                auto error = cudaMallocHost((void **) &p, bytes);
+                FAISS_ASSERT_FMT(
+                        error == cudaSuccess,
+                        "Failed to malloc pinned memory: %d vectors (error %d %s)",
+                        BCluSize[index],
+                        (int)error,
+                        cudaGetErrorString(error));
+
+                // Substitute pinned memory for nopinned
+                for (int l = 0; l < BCluSize[index]; l++) {
+                    for (int m = 0; m < d; m++) {
+                        int oldidx = l * d + m;
+                        int newidx = m * 32 + (int)(l / 32) * (32 * d) + l % 32;
+                        p[newidx] = nop[oldidx]; 
+                    }
+                }
+
+                Mem[index] = p;
+
+                // ADD the original memory address
+                nop = nop + nobytes/sizeof(float);
+                index++;
+            }
+        }
+        
         // Free the nopinned memory
         free(noPinnedMem[i]);
     }

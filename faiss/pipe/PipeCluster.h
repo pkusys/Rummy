@@ -26,7 +26,7 @@ public:
 
     // Construct the cluster info
     PipeCluster(int nlist, int d, std::vector<int> & sizes, 
-            std::vector<float *> & pointers);
+            std::vector<float *> & pointers, bool interleaved_);
 
     ~PipeCluster();
 
@@ -84,6 +84,9 @@ public: // For convenient, may change the mode to public later
 
     // Check if we use pinned memory for Mem
     bool pinned = false;
+
+    // Whether the code should be interleaved
+    bool interleaved;
 
     // Each cluster's number of vectors
     std::vector<int> CluSize;

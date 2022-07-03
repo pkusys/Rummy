@@ -748,7 +748,7 @@ void IndexIVFPipe::balance() {
     // sleep(10);
 
     // Construct PipeCluster from the origional clusters' data.
-    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers);
+    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers, ivfPipeConfig_.interleavedLayout);
     delete invlists;
     balanced = true;
 

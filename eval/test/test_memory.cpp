@@ -54,7 +54,7 @@ int main(){
         pointer.push_back(p);
     }
 
-    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer);
+    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, true);
     printf("Nlist after balaced: %d %d\n", pc->bnlist, pc->bcs * pc->bnlist);
     
     faiss::gpu::PipeGpuResources pg;
