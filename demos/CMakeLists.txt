@@ -21,3 +21,6 @@ target_link_libraries(demo_sift1M PRIVATE faiss)
 
 add_executable(demo_weighted_kmeans EXCLUDE_FROM_ALL demo_weighted_kmeans.cpp)
 target_link_libraries(demo_weighted_kmeans PRIVATE faiss)
+
+add_executable(demo_gpu EXCLUDE_FROM_ALL demo_gpu.cpp)
+target_link_libraries(demo_gpu PRIVATE faiss)

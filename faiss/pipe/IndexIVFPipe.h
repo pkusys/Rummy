@@ -6,7 +6,8 @@
  */
 
 #pragma once
-
+#include <vector>
+#include <algorithm>
 #include <typeinfo>
 #include <faiss/Clustering.h>
 #include <faiss/Index.h>
@@ -23,11 +24,13 @@
 namespace faiss {
 
 // For benchmark
-// static double elapsed() {
-//     struct timeval tv;
-//     gettimeofday(&tv, NULL);
-//     return tv.tv_sec + tv.tv_usec * 1e-6;
-// }
+/*
+static double elapsed() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
+*/
 
 struct IndexIVFPipeConfig {
     inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_64_BIT),\
@@ -252,11 +255,16 @@ struct IndexIVFPipe: Index {
      * @param x vectors to query
      * @param coarse_dis[n][nprobe]  the matrix of distance between origional clusters and queries
      * @param ori_idx[n][nprobe] the matrix of id of origional clusters
-     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in pipe_cluster_idx[i] 
-     * @param bcluster_cnt[n] the number of balanced clusters to be searched for query i.
+     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in query_bcluster_matrix[i] 
+     * @param bcluster_per_query[n] the number of balanced clusters to be searched for query i.
      * @param actual_nprobe actual number of probes
-     * @param pipe_cluster_idx[n][batch_width] the matrix of id of balanced clusters
-     * @param batch_width the maximum numbers of balanced vectors for one query in this case
+     * @param query_bcluster_matrix[n][maxcluster_per_query] the matrix of id of balanced clusters
+     * @param maxbcluster_per_query the maximum numbers of balanced vectors for one query in this case
+     * @param bcluster_cnt the number of balanced clusters concerning.
+     * @param bcluster_list[bcluster_cnt] the balanced clusters concerned.
+     * @param query_per_bcluster[bcluster_cnt] the number of queries for each balanced cluster.
+     * @param maxquery_per_bcluster the maximum number of queries for a balanced cluster.
+     * @param bcluster_query_matrix[bcluster_cnt][maxquery_per_bcluster] 
      */
     void sample_list(
             idx_t n,
@@ -264,15 +272,15 @@ struct IndexIVFPipe: Index {
             float** coarse_dis,
             int** ori_idx,
             idx_t** ori_offset,
-            size_t** bcluster_cnt,
+            size_t** bcluster_per_query,
             size_t *actual_nprobe,
-            int** pipe_cluster_idx,
-            size_t* batch_width) {
-    /** It is a sad fact of software that a conceptually simple function like this
-    * becomes very complex when you factor in several ways of parallelizing +
-    * interrupt/error handling + collecting stats + min/max collection. The
-    * codepath that is used 95% of time is the one for parallel_mode = 0 */
-
+            int** query_bcluster_matrix,
+            size_t* maxbcluster_per_query,
+            int* bcluster_cnt,
+            int** bcluster_list,
+            int** query_per_bcluster,
+            int* maxquery_per_bcluster,
+            int** bcluster_query_matrix) {
 
     FAISS_THROW_IF_NOT_MSG(this->is_trained, "Index not trained");
 
@@ -300,52 +308,146 @@ struct IndexIVFPipe: Index {
     *coarse_dis = new float[n * nprobe];
     *ori_idx = new int[n * nprobe];
     *ori_offset = new idx_t[n * nprobe];
-    *bcluster_cnt = new size_t[n];
+    *bcluster_per_query = new size_t[n];
+
+    // to eliminate the data dependence of the loop from line 348-365, we allocate 8 buffer to save them saparately.
+    int nthread = omp_get_max_threads();
+    FAISS_ASSERT(nthread == 8);
+    int* clusters_query_matrix = (int*)malloc(nlist * 8 * n * sizeof(int));
+    int* query_per_cluster = (int*)malloc(8 * nlist * sizeof(int));
+    
+    std::vector<int> query_per_cluster_total;
+    query_per_cluster_total.resize(nlist);
+
+    std::vector<int> bcluster_list_;
+    bcluster_list_.resize(pipe_cluster->bnlist);
 
     int nt = std::min(omp_get_max_threads(), int(n));
-
+#pragma omp parallel for if (nt > 1)
+    for (int i = 0 ; i < 8 ; i++) {
+        std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, 0);
+    }   
 
     gpu::DeviceScope scope(ivfPipeConfig_.device);
 
-    // double t2 = elapsed();
-
     FAISS_ASSERT (gpu::getDeviceForAddress(x) == -1);
 
-    
+
+    // double t2 = elapsed();
+
+    // calculate the coarse indice that should be searched.
     samplePaged_(n, x, nprobe, *coarse_dis, *ori_idx);
 
-    // printf("mere sample FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+
+    // printf("time 0 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
     // t2 = elapsed();
 
 
+    // scan the coarse_idx matrix to record queries for each cluster,
+    // and also record the balanced cluster number for each query.
 #pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
+        int thisthread = omp_get_thread_num();
         // if (i == 0)
         //     printf("%d haha\n", omp_in_parallel());
-        std::vector<int> clusters_query;
         size_t offset = 0;
         for (size_t j = 0; j < nprobe; j++) {
-            (*ori_offset)[i * nprobe + j] = offset;
-            offset += (size_t)(pipe_cluster->O2Bcnt[(*ori_idx)[i * nprobe + j]]);                           
+            int idx = i * nprobe + j;
+            int clus_id = (*ori_idx)[idx];
+            int idx2 = omp_get_thread_num() * nlist + clus_id;
+            int idx3 = clus_id * 8 * n + omp_get_thread_num() * n + query_per_cluster[idx2];
+            clusters_query_matrix[idx3] = i;            
+            query_per_cluster[idx2] ++;
+            (*ori_offset)[idx] = offset;
+            offset += (size_t)(pipe_cluster->O2Bcnt[clus_id]);                           
         }
-        (*bcluster_cnt)[i] = offset;
+        (*bcluster_per_query)[i] = offset;
     }
 
-    // printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    // t2 = elapsed();
-
-    size_t max_bclusters_cnt = 0;
-    for (int i = 0; i < n; i++){
-        max_bclusters_cnt = std::max (max_bclusters_cnt, (*bcluster_cnt)[i]);
+    //merge the query_per_cluster variable for each thread
+#pragma omp parallel for if (nt > 1)
+    for (int i = 0; i < nlist; i++) {
+        query_per_cluster_total[i] = 0;
+        for (int j = 0; j < 8; j++ ) {
+            query_per_cluster_total[i] += query_per_cluster[j * nlist + i];
+        }
     }
-    *batch_width = max_bclusters_cnt;
-    *pipe_cluster_idx = new int[n * max_bclusters_cnt];
-    auto p = *pipe_cluster_idx;
 
-    // printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    // t2 = elapsed();
+
+    //printf("time 1 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    //t2 = elapsed();
 
     
+    // sort out the balanced clusters concerned, calculate the size of bcluster_query_matrix.
+    *maxquery_per_bcluster = 0;
+    *bcluster_cnt = 0;
+    std::vector<int> accumulate_cluster_offset;//< the offset of cluster i in the matrix
+    accumulate_cluster_offset.resize(nlist + 1);
+    accumulate_cluster_offset[0] = 0;
+
+    for (int i = 0; i < nlist; i++) {//<this cannot be accelerated with omp due to data dependence.
+        *maxquery_per_bcluster = std::max (*maxquery_per_bcluster, query_per_cluster_total[i]);
+        int bclusters_num = 0;
+        if (query_per_cluster_total[i] > 0) {
+            bclusters_num = pipe_cluster->O2Bcnt[i];
+            std::vector<int> &bclusters_probe = pipe_cluster->O2Bmap[i];
+            memcpy (bcluster_list_.data() + (*bcluster_cnt), bclusters_probe.data(), bclusters_num * sizeof(int));
+            *bcluster_cnt += bclusters_num;
+        }
+        accumulate_cluster_offset[i + 1] = accumulate_cluster_offset[i] + bclusters_num;
+    }
+    *bcluster_query_matrix = new int[(*bcluster_cnt) * (*maxquery_per_bcluster)];
+    *bcluster_list = new int[*bcluster_cnt];
+    *query_per_bcluster = new int[*bcluster_cnt];
+    memcpy (*bcluster_list, bcluster_list_.data(), sizeof(int) * (*bcluster_cnt));
+
+
+    //printf("time 2 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    //t2 = elapsed();
+
+
+    // fill the bcluster_query_matrix and query_per_bcluster vector.
+    auto q = *bcluster_query_matrix;
+    
+#pragma omp parallel for if (nt > 1)  
+    for (int i = 0; i < nlist; i++) {
+        int offset_x = accumulate_cluster_offset[i];
+        if (query_per_cluster_total[i] > 0) {
+            int blcusters_num = pipe_cluster->O2Bcnt[i];
+            for (int j = 0; j < blcusters_num; j++) {
+                (*query_per_bcluster)[offset_x] = query_per_cluster_total[i];
+                int offset_2 = 0;
+                #pragma unroll
+                for (int k = 0; k < 8; k++) {
+                    memcpy (q + offset_x * (*maxquery_per_bcluster) + offset_2, clusters_query_matrix + i*8*n + k*n, sizeof(int) * (query_per_cluster[k * nlist + i]));
+                    offset_2 += query_per_cluster[k * nlist + i];
+                }
+                std::fill(q + offset_x * (*maxquery_per_bcluster) + query_per_cluster_total[i], q + (offset_x + 1) * (*maxquery_per_bcluster), -1);
+                offset_x += 1;
+            }
+        }
+    }
+
+    //printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    //t2 = elapsed();
+
+
+
+    // calculate the size of the query_bcluster_matrix
+    size_t max_bclusters_cnt = 0;
+    for (int i = 0; i < n; i++) {
+        max_bclusters_cnt = std::max (max_bclusters_cnt, (*bcluster_per_query)[i]);
+    }
+    *maxbcluster_per_query = max_bclusters_cnt;
+    *query_bcluster_matrix = new int[n * max_bclusters_cnt];
+    auto p = *query_bcluster_matrix;
+
+
+    //printf("time 4 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    //t2 = elapsed();
+
+
+    // fill the query_bcluster_matrix
 #pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < nprobe; j++) {
@@ -354,10 +456,15 @@ struct IndexIVFPipe: Index {
                          pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
             memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), bclusters_probe.size() * sizeof(int));                              
         }
+        std::fill(p + i * max_bclusters_cnt + (*bcluster_per_query)[i], p + (i + 1) * max_bclusters_cnt, -1);
     }
     
-    // printf("time 3 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
-    // t2 = elapsed();
+    //printf("time 5 FINISHED in %.3f ms\n", (elapsed() - t2) * 1000);
+    //t2 = elapsed();
+
+
+    free(clusters_query_matrix);
+    free(query_per_cluster);
 
     return;
 }

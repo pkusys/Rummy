@@ -169,22 +169,32 @@ struct CpuIndexIVFPipe: Index {
      * @param x vectors to query
      * @param coarse_dis[n][nprobe]  the matrix of distance between origional clusters and queries
      * @param ori_idx[n][nprobe] the matrix of id of origional clusters
-     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in pipe_cluster_idx[i] 
-     * @param bcluster_cnt[n] the number of balanced clusters to be searched for query i.
+     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in query_bcluster_matrix[i] 
+     * @param bcluster_per_query[n] the number of balanced clusters to be searched for query i.
      * @param actual_nprobe actual number of probes
-     * @param pipe_cluster_idx[n][batch_width] the matrix of id of balanced clusters
-     * @param batch_width the maximum numbers of balanced vectors for one query in this case
+     * @param query_bcluster_matrix[n][maxcluster_per_query] the matrix of id of balanced clusters
+     * @param maxbcluster_per_query the maximum numbers of balanced vectors for one query in this case
+     * @param bcluster_cnt the number of balanced clusters concerning.
+     * @param bcluster_list[bcluster_cnt] the balanced clusters concerned.
+     * @param query_per_bcluster[bcluster_cnt] the number of queries for each balanced cluster.
+     * @param maxquery_per_bcluster the maximum number of queries for a balanced cluster.
+     * @param bcluster_query_matrix[bcluster_cnt][maxquery_per_bcluster] 
      */
     void sample_list(
-        idx_t n,
-        const float* x,
-        float** coarse_dis,
-        idx_t** ori_idx,
-        idx_t** ori_offset,
-        size_t** bcluster_cnt,
-        size_t *actual_nprobe,
-        int** pipe_cluster_idx,
-        size_t* batch_width);
+            idx_t n,
+            const float* x,
+            float** coarse_dis,
+            idx_t** ori_idx,
+            idx_t** ori_offset,
+            size_t** bcluster_per_query,
+            size_t *actual_nprobe,
+            int** query_bcluster_matrix,
+            size_t* maxbcluster_per_query,
+            int* bcluster_cnt,
+            int** bcluster_list,
+            int** query_per_bcluster,
+            int* maxquery_per_bcluster,
+            int** bcluster_query_matrix);
 
     
     void sa_decode(idx_t n, const uint8_t* bytes, float* x) const override;

@@ -54,7 +54,7 @@ int main() {
     // 4 = nb of bytes per code (d must be a multiple of this)
     // 8 = nb of bits per sub-code (almost always 8)
 
-    
+
     std::mt19937 rng;
 
     // training
@@ -80,7 +80,7 @@ int main() {
     std::vector<float> queries;
         
     int i0 = 1234;
-    int i1 = 1234 + 256;
+    int i1 = 1234 + 512;
 
     nq = i1 - i0;
 
@@ -130,7 +130,7 @@ int main() {
 
     index->add(nb, database);
     for (int i = 0; i < 16; i++)
-        printf("%d\n", index->get_list_size(i));
+        printf("%zu\n", index->get_list_size(i));
     printf("Prepare delete\n");
     sleep(1);
     delete[] database;
@@ -143,12 +143,16 @@ int main() {
     sleep(1);
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
-    t1 = elapsed();
+   
 
-    index->set_nprobe(64);
-    
-    { // searching the database
+
+    // display results:searching the database
+
+    {
         int k = 5;
+        nq = 10;
+        index->set_nprobe(5);
+        t1 = elapsed();
         printf("[%.3f s] Searching the %d nearest neighbors "
                "of %ld vectors in the GPU index   ",
                t1 - t0,
@@ -159,24 +163,32 @@ int main() {
         float* coarse_dis;
         int* ori_idx;
         int64_t* ori_offset;
-        size_t* bcluster_cnt;
+        size_t* bcluster_per_query;
         size_t actual_nprobe;
-        int* pipe_cluster_idx;
-        size_t batch_width;
+        int* query_bcluster_matrix;
+        size_t maxbcluster_per_query;
+        int bcluster_cnt;
+        int* bcluster_list;
+        int* query_per_bcluster;
+        int maxquery_per_bcluster;
+        int* bcluster_query_matrix;
 
-        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset, &bcluster_cnt, &actual_nprobe, &pipe_cluster_idx, &batch_width);
+        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset,\
+             &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
+             &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
+             &bcluster_query_matrix);
 
     
         printf("{FINISHED in %.3f ms}\n", (elapsed() - t1) * 1000);
-        // Display the sample matrix
-    /*  t1 = elapsed();
+
+        // Display the query-bcluster matrix
         printf("[%.3f s] Query results (vector ids, then distances)(only display 10 queries):\n",
                elapsed() - t0);
 
-        printf("batch_width:%zu, actual_nprobe:%zu\n", batch_width, actual_nprobe);
+        printf("maxbcluster_per_query:%zu, actual_nprobe:%zu\n", maxbcluster_per_query, actual_nprobe);
     
         for (int i = 0; i < 10; i++) {
-            printf("query %2d: width %zu \n", i, bcluster_cnt[i]);
+            printf("query %2d: width %zu \n", i, bcluster_per_query[i]);
             for(int j = 0; j < actual_nprobe; j++) {
                 printf("%d cluster::offset %ld,dis:%f   ", ori_idx[j + i * actual_nprobe], ori_offset[j + i * actual_nprobe], coarse_dis[j + i * actual_nprobe]);
             }
@@ -186,14 +198,87 @@ int main() {
 
         printf("balanced clusters:\n");
         for (int i = 0; i < 10; i++) {
-            for (int j = 0; j < batch_width; j++) {
-                printf("%d  ", pipe_cluster_idx[j + i * batch_width]);
+            for (int j = 0; j < maxbcluster_per_query; j++) {
+                printf("%d  ", query_bcluster_matrix[j + i * maxbcluster_per_query]);
             }
         printf("\n");
         }
-    */
-    }
+        
 
+        // Display the bcluster-query matrix
+        printf ("[%.3f s] bcluster-query results(only display 10 queries):\n",
+               elapsed() - t0);
+        
+        printf ("bcluster_cnt:%d, maxquery_per_bcluster:%d\n", bcluster_cnt, maxquery_per_bcluster);
+        for (int i = 0; i < bcluster_cnt; i++) {
+            printf("bcluster_id:%d, %d queries:   ", bcluster_list[i], query_per_bcluster[i]);
+            for (int j = 0; j < query_per_bcluster[i]; j++) {
+                printf("%d  ", bcluster_query_matrix[i * maxquery_per_bcluster + j]);
+            }
+            for(int j = query_per_bcluster[i]; j < maxquery_per_bcluster; j++){
+                FAISS_ASSERT(bcluster_query_matrix[i * maxquery_per_bcluster + j]==-1);
+            }
+            printf("\n");
+        }
+
+        free(coarse_dis);
+        free(ori_idx);
+        free(ori_offset);
+        free(bcluster_per_query);
+        free(query_bcluster_matrix);
+        free(bcluster_list);
+        free(query_per_bcluster);
+        free(bcluster_query_matrix);
+
+    }
+    int totalit = 1;//10;
+    //double ave = 0.0;
+    // display performance: searching the database
+    for(int it = 0; it < totalit; it++)
+    {
+        int k = 5;
+        index->set_nprobe(512);
+        nq = 512;
+        t1 = elapsed();
+        printf("[%.3f s] Searching the %d nearest neighbors "
+               "of %ld vectors in the GPU index   ",
+               t1 - t0,
+               k,
+               nq);
+        fflush(stdout);
+
+        float* coarse_dis;
+        int* ori_idx;
+        int64_t* ori_offset;
+        size_t* bcluster_per_query;
+        size_t actual_nprobe;
+        int* query_bcluster_matrix;
+        size_t maxbcluster_per_query;
+        int bcluster_cnt;
+        int* bcluster_list;
+        int* query_per_bcluster;
+        int maxquery_per_bcluster;
+        int* bcluster_query_matrix;
+
+        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset,\
+             &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
+             &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
+             &bcluster_query_matrix);
+
+        free(coarse_dis);
+        free(ori_idx);
+        free(ori_offset);
+        free(bcluster_per_query);
+        free(query_bcluster_matrix);
+        free(bcluster_list);
+        free(query_per_bcluster);
+        free(bcluster_query_matrix);
+
+        printf("{FINISHED in %.3f ms}\n", (elapsed() - t1) * 1000);
+        //ave += (elapsed() - t1) * 1000;
+
+    }
+    //printf("%f\n", ave / float(totalit));
 
     return 0;
 }
