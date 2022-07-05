@@ -310,7 +310,8 @@ struct IndexIVFPipe: Index {
     *ori_offset = new idx_t[n * nprobe];
     *bcluster_per_query = new size_t[n];
 
-    // to eliminate the data dependence of the loop from line 348-365, we allocate 8 buffer to save them saparately.
+    // to eliminate the data dependence of the loop from line 348-365, 
+    // we allocate 8 buffer to save them saparately.
     int nthread = omp_get_max_threads();
     FAISS_ASSERT(nthread == 8);
     int* clusters_query_matrix = (int*)malloc(nlist * 8 * n * sizeof(int));
@@ -325,7 +326,7 @@ struct IndexIVFPipe: Index {
     int nt = std::min(omp_get_max_threads(), int(n));
 #pragma omp parallel for if (nt > 1)
     for (int i = 0 ; i < 8 ; i++) {
-        std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, 0);
+        std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, -1);
     }   
 
     gpu::DeviceScope scope(ivfPipeConfig_.device);
@@ -349,7 +350,7 @@ struct IndexIVFPipe: Index {
     for (size_t i = 0; i < n; i++) {
         int thisthread = omp_get_thread_num();
         // if (i == 0)
-        //     printf("%d haha\n", omp_in_parallel());
+        //     printf("Opm works well ? : %d\n", omp_in_parallel());
         size_t offset = 0;
         for (size_t j = 0; j < nprobe; j++) {
             int idx = i * nprobe + j;

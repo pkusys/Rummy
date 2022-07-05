@@ -206,6 +206,8 @@ void PipeCluster::mallocPinnedMem(){
                         cudaGetErrorString(error));
 
                 // Substitute pinned memory for nopinned
+                int nt = std::min(omp_get_max_threads(), BCluSize[index]);
+#pragma omp parallel for if (nt > 1)
                 for (int l = 0; l < BCluSize[index]; l++) {
                     for (int m = 0; m < d; m++) {
                         int oldidx = l * d + m;

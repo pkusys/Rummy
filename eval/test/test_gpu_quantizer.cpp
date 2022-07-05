@@ -139,7 +139,7 @@ int main() {
     printf("Add finishing\n");
     sleep(1);
     index->balance();
-    printf("Balance finishing\n");
+    printf("Balance finishing %d\n", index->pipe_cluster->bnlist);
     sleep(1);
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
@@ -237,7 +237,7 @@ int main() {
     for(int it = 0; it < totalit; it++)
     {
         int k = 5;
-        index->set_nprobe(512);
+        index->set_nprobe(64);
         nq = 512;
         t1 = elapsed();
         printf("[%.3f s] Searching the %d nearest neighbors "

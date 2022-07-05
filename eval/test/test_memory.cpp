@@ -48,19 +48,22 @@ int main(){
     std::vector<float *> pointer;
     for (int i = 0; i < nlist; i++){
         float *p;
-        int sz = (i%2 ==0 ? 256: 512);
+        int sz = (i%2 ==0 ? 256*32: 512*32);
         p = (float*) malloc(sz * d * sizeof(float));
         sizes.push_back(sz);
         pointer.push_back(p);
     }
 
+    t0 = elapsed();
     faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, true);
-    printf("Nlist after balaced: %d %d\n", pc->bnlist, pc->bcs * pc->bnlist);
+    printf("Nlist after balaced: %d %d, Time: %.3f s\n", pc->bnlist, 
+        pc->bcs * pc->bnlist, elapsed() - t0);
     
     faiss::gpu::PipeGpuResources pg;
     pg.setMaxDeviceSize((pc->bcs * pc->bnlist)*d*sizeof(float));
     pg.setPageSize(pc->bcs*d*sizeof(float));
     pg.initializeForDevice(0, pc);
+    sleep(5);
     t0 = elapsed();
     faiss::gpu::MemBlock mb = pg.allocMemory(100);
     for(int i= 0; i < mb.pages.size(); i++){
