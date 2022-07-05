@@ -26,7 +26,7 @@ public:
 
     // Construct the cluster info
     PipeCluster(int nlist, int d, std::vector<int> & sizes, 
-            std::vector<float *> & pointers, bool interleaved_);
+            std::vector<float *> & pointers, std::vector<int*> & indexes, bool interleaved_);
 
     ~PipeCluster();
 
@@ -103,8 +103,14 @@ public: // For convenient, may change the mode to public later
     // Each cluster's storage on noPinned Memory before balance
     std::vector<float*> noPinnedMem;
 
+    // Each cluster's index id on noPinned Memory before balance
+    std::vector<int*> noBalan_ids;
+
     // Each balanced cluster's storage
     std::vector<float*> Mem;
+
+    // Each balanced cluster's idx
+    std::vector<int*> Balan_ids;
 
     // Each cluster's storage on Device
     std::vector<int> DeviceMem;

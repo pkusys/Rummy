@@ -42,4 +42,14 @@ int main(){
     }
     t1 = elapsed();
     printf("Remove Time: %f ms\n", (t1 - t0)*1000);
+    // auto t0 = elapsed();
+    // int size = 30 * 1000 * 1000;
+    // int64_t *a = new int64_t[size];
+    // for(int i = 0; i < size; i++)
+    //     a[i] = 34;
+    // int *b = new int[size];
+    // for(int i = 0; i < size; i++)
+    //     b[i] = a[i];
+    // auto t1 = elapsed();
+    // printf("Time: %f ms\n", (t1 - t0)*1000);
 }

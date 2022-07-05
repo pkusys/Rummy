@@ -65,6 +65,9 @@ struct InvertedLists {
     /// Free the codes of ith cluster
     virtual void free_codes(size_t list_no);
 
+    /// Free the index ids of ith cluster
+    virtual void free_idx(size_t list_no);
+
     /// release ids returned by get_ids
     virtual void release_ids(size_t list_no, const idx_t* ids) const;
 
@@ -220,6 +223,8 @@ struct ArrayInvertedLists : InvertedLists {
     void release_codes(size_t list_no, const uint8_t* nullp) const override;
 
     void free_codes(size_t list_no) override;
+
+    void free_idx(size_t list_no) override;
 
     ~ArrayInvertedLists() override;
 };

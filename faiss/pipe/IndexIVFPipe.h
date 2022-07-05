@@ -77,6 +77,8 @@ struct IndexIVFPipeConfig {
 /* Piped IndexIVF, with GPU quantizer */
 struct IndexIVFPipe: Index {
 
+    // using idx_t = Index::idx_t;
+
     size_t nlist;
     MetricType metric_type;
     float metric_arg; ///< argument of the metric type

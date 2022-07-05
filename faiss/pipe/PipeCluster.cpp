@@ -44,7 +44,7 @@ float StdDev (std::vector<int> vec){
 //
 
 PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes, 
-            std::vector<float *> & pointers, bool interleaved_){
+            std::vector<float *> & pointers, std::vector<int*> & indexes, bool interleaved_){
     
     // Initialize some attributes
     nlist = nlist_;
@@ -57,6 +57,8 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
 
     noPinnedMem = pointers;
 
+    noBalan_ids = indexes;
+
     Mem.resize(nlist);
 
     // Balance the clusters
@@ -66,6 +68,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
     Mem.resize(BCluSize.size());
+    Balan_ids.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
     DeviceMem.resize(BCluSize.size());
 
@@ -164,14 +167,26 @@ void PipeCluster::mallocPinnedMem(){
         auto balaClu = O2Bmap[i];
         int num = balaClu.size();
         float *nop = noPinnedMem[i];
+        int *index_nop = noBalan_ids[i];
         
         if (!interleaved) {
             for(int j = 0; j < num; j++){
                 size_t bytes = BCluSize[index] * d * sizeof(float);
                 float *p;
 
+                size_t index_bytes = BCluSize[index] * sizeof(int);
+                int *index_p;
+
                 // Malloc pinned memory
                 auto error = cudaMallocHost((void **) &p, bytes);
+                FAISS_ASSERT_FMT(
+                        error == cudaSuccess,
+                        "Failed to malloc pinned memory: %d vectors (error %d %s)",
+                        BCluSize[index],
+                        (int)error,
+                        cudaGetErrorString(error));
+
+                error = cudaMallocHost((void **) &index_p, index_bytes);
                 FAISS_ASSERT_FMT(
                         error == cudaSuccess,
                         "Failed to malloc pinned memory: %d vectors (error %d %s)",
@@ -181,20 +196,27 @@ void PipeCluster::mallocPinnedMem(){
 
                 // Substitute pinned memory for nopinned
                 memcpy(p, nop, bytes);
+                memcpy(index_p, index_nop, index_bytes);
 
                 Mem[index] = p;
+                Balan_ids[index] = index_p;
 
                 // ADD the original memory address
                 nop = nop + bytes/sizeof(float);
+                index_nop = index_nop + index_bytes/sizeof(int);
                 index++;
             }
         }
         else{
             for(int j = 0; j < num; j++){
                 size_t nobytes = BCluSize[index] * d * sizeof(float);
-                size_t bytes = BCluSize[index] % 32 == 0 ? BCluSize[index] : BCluSize[index] / 32 * 32 + 32 ;
+                size_t bytes = BCluSize[index] % 32 == 0 ? BCluSize[index] : 
+                    BCluSize[index] / 32 * 32 + 32 ;
                 bytes *= d * sizeof(float);
                 float *p;
+
+                size_t index_bytes = BCluSize[index] * sizeof(int);
+                int *index_p;
 
                 // Malloc pinned memory
                 auto error = cudaMallocHost((void **) &p, bytes);
@@ -204,6 +226,15 @@ void PipeCluster::mallocPinnedMem(){
                         BCluSize[index],
                         (int)error,
                         cudaGetErrorString(error));
+
+                error = cudaMallocHost((void **) &index_p, index_bytes);
+                FAISS_ASSERT_FMT(
+                        error == cudaSuccess,
+                        "Failed to malloc pinned memory: %d vectors (error %d %s)",
+                        BCluSize[index],
+                        (int)error,
+                        cudaGetErrorString(error));
+                memcpy(index_p, index_nop, index_bytes);
 
                 // Substitute pinned memory for nopinned
                 int nt = std::min(omp_get_max_threads(), BCluSize[index]);
@@ -217,15 +248,18 @@ void PipeCluster::mallocPinnedMem(){
                 }
 
                 Mem[index] = p;
+                Balan_ids[index] = index_p;
 
                 // ADD the original memory address
                 nop = nop + nobytes/sizeof(float);
+                index_nop = index_nop + index_bytes/sizeof(int);
                 index++;
             }
         }
         
         // Free the nopinned memory
         free(noPinnedMem[i]);
+        free(noBalan_ids[i]);
     }
     // Check the correctness of pinned malloc
     FAISS_ASSERT(index == BCluSize.size());
@@ -241,25 +275,34 @@ void PipeCluster::mallocNoPinnedMem(){
         auto balaClu = O2Bmap[i];
         int num = balaClu.size();
         float *nop = noPinnedMem[i];
+        int *index_nop = noBalan_ids[i];
         
         for(int j = 0; j < num; j++){
             size_t bytes = BCluSize[index] * d * sizeof(float);
             float *p;
 
+            size_t index_bytes = BCluSize[index] * sizeof(int);
+            int *index_p;
+
             // Malloc no pinned memory
             p = (float *)malloc(bytes);
+            index_p = (int *)malloc(index_bytes);
 
             // Substitute pinned memory for nopinned
             memcpy(p, nop, bytes);
+            memcpy(index_p, index_nop, index_bytes);
 
             Mem[index] = p;
+            Balan_ids[index] = index_p;
 
             // ADD the original memory address
             nop = nop + bytes/sizeof(float);
+            index_nop = index_nop + index_bytes/sizeof(int);
             index++;
         }
         // Free the nopinned memory
         free(noPinnedMem[i]);
+        free(noBalan_ids[i]);
     }
     // Check the correctness of pinned malloc
     FAISS_ASSERT(index == BCluSize.size());

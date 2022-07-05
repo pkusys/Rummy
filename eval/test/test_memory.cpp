@@ -41,21 +41,25 @@ int main(){
     //     }
     //     std::cout << "\n";
     // }
-    
+    omp_set_num_threads(8);
     double t0, t1;
     int nlist = 1024, d = 128;
     std::vector<int> sizes;
     std::vector<float *> pointer;
+    std::vector<int *> ids;
     for (int i = 0; i < nlist; i++){
         float *p;
+        int *in;
         int sz = (i%2 ==0 ? 256*32: 512*32);
         p = (float*) malloc(sz * d * sizeof(float));
+        in = (int*) malloc(sz * sizeof(int));
         sizes.push_back(sz);
         pointer.push_back(p);
+        ids.push_back(in);
     }
 
     t0 = elapsed();
-    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, true);
+    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, ids, true);
     printf("Nlist after balaced: %d %d, Time: %.3f s\n", pc->bnlist, 
         pc->bcs * pc->bnlist, elapsed() - t0);
     

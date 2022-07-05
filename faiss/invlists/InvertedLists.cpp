@@ -35,6 +35,8 @@ void InvertedLists::release_codes(size_t, const uint8_t*) const {}
 
 void InvertedLists::free_codes(size_t) {}
 
+void InvertedLists::free_idx(size_t) {}
+
 void InvertedLists::release_ids(size_t, const idx_t*) const {}
 
 void InvertedLists::prefetch_lists(const idx_t*, int) const {}
@@ -163,6 +165,10 @@ void ArrayInvertedLists::release_codes(size_t list_no, const uint8_t* nullp) con
 
 void ArrayInvertedLists::free_codes(size_t list_no){
     std::vector<uint8_t>().swap(codes[list_no]);
+}
+
+void ArrayInvertedLists::free_idx(size_t list_no){
+    std::vector<idx_t>().swap(ids[list_no]);
 }
 
 const InvertedLists::idx_t* ArrayInvertedLists::get_ids(size_t list_no) const {
