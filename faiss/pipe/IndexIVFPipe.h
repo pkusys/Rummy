@@ -329,7 +329,7 @@ struct IndexIVFPipe: Index {
     int nt = std::min(omp_get_max_threads(), int(n));
 #pragma omp parallel for if (nt > 1)
     for (int i = 0 ; i < 8 ; i++) {
-        std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, -1);
+        std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, 0);
     }   
 
     gpu::DeviceScope scope(ivfPipeConfig_.device);
