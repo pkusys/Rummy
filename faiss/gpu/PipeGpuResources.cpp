@@ -521,6 +521,9 @@ char* PipeTempMemory::PipeStack::getAlloc(size_t size){
 
     FAISS_ASSERT_FMT(size <= sizeRemaining, "The PipeStack is not enough for size: %zu", size);
 
+    // All allocations should have been adjusted to a multiple of 16 bytes
+    FAISS_ASSERT(size % 16 == 0);
+
     char* startAlloc = head_;
     char* endAlloc = head_ + size;
 

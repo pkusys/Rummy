@@ -13,6 +13,7 @@
 #include <cmath>
 #include <string.h>
 #include <iostream>
+#include <sstream>
 
 namespace faiss {
 
@@ -20,6 +21,9 @@ namespace {
 
 // Default expected standard variance ratio
 const float StdVarRation = 0.2;
+
+// Default Temp PinMemory Size (64 MiB)
+const int PinTempSize = 64 * 1024 * 1024;
 
 float StdDev (std::vector<int> vec){
     // Caculate the mean value
@@ -44,7 +48,8 @@ float StdDev (std::vector<int> vec){
 //
 
 PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes, 
-            std::vector<float *> & pointers, std::vector<int*> & indexes, bool interleaved_){
+            std::vector<float *> & pointers, std::vector<int*> & indexes, 
+            bool interleaved_) : stack_(PinTempSize){
     
     // Initialize some attributes
     nlist = nlist_;
@@ -370,6 +375,146 @@ void PipeCluster::addGlobalCount(int id, int num){
 int PipeCluster::readGlobalCount(int id){
     // Read Count
     return GlobalCount[id];
+}
+
+//
+// PinTempMemory & PinStack
+//
+
+PipeCluster::PinStack::PinStack(size_t size)
+        : alloc_(nullptr),
+          allocSize_(size),
+          start_(nullptr),
+          end_(nullptr),
+          head_(nullptr),
+          highWaterMemoryUsed_(0) {
+    if (allocSize_ == 0) {
+        return;
+    }
+
+    // Temp Pinned page must be aligned to 256 bytes
+    size_t adjsize = ((allocSize_ + 255) / 256 ) * 256;
+
+    void* p = nullptr;
+    auto err = cudaMallocHost(&p, adjsize);
+
+    // Fail to alloc stack memory
+    if (err != cudaSuccess) {
+        // FIXME: as of CUDA 11, a memory allocation error appears to be
+        // presented via cudaGetLastError as well, and needs to be cleared.
+        // Just call the function to clear it
+        cudaGetLastError();
+
+        std::stringstream ss;
+        ss << "PinStack: alloc fail: size " << allocSize_
+            << " (cudaMallocHost error " << cudaGetErrorString(err) << " ["
+            << (int)err << "])\n";
+        auto str = ss.str();
+
+        FAISS_THROW_IF_NOT_FMT(err == cudaSuccess, "%s", str.c_str());
+    }
+
+    alloc_ = (char*) p;
+    FAISS_ASSERT_FMT(
+            alloc_,
+            "could not reserve temporary memory region of size %zu",
+            allocSize_);
+
+    // Initialize the stack info
+    start_ = alloc_;
+    head_ = start_;
+    end_ = alloc_ + adjsize;
+}
+
+PipeCluster::PinStack::~PinStack() {
+
+    if (alloc_) {
+        auto err = cudaFreeHost(alloc_);
+        FAISS_ASSERT_FMT(
+                err == cudaSuccess,
+                "Failed to cudaFreeHost pointer %p (error %d %s)",
+                alloc_,
+                (int)err,
+                cudaGetErrorString(err));
+    }
+}
+
+size_t PipeCluster::PinStack::getSizeAvailable() const {
+    return (end_ - head_);
+}
+
+char* PipeCluster::PinStack::getAlloc(size_t size){
+    // The allocation fails if the remaining memory isnot enough
+    auto sizeRemaining = getSizeAvailable();
+
+    FAISS_ASSERT_FMT(size <= sizeRemaining, "The PinStackis not enough for size: %zu", size);
+
+    // All allocations should have been adjusted to a multiple of 16 bytes
+    FAISS_ASSERT(size % 16 == 0);
+
+    char* startAlloc = head_;
+    char* endAlloc = head_ + size;
+
+    head_ = endAlloc;
+    FAISS_ASSERT(head_ <= end_);
+
+    highWaterMemoryUsed_ =
+            std::max(highWaterMemoryUsed_, (size_t)(head_ - start_));
+    FAISS_ASSERT(startAlloc);
+    return startAlloc;
+
+}
+
+void PipeCluster::PinStack::deAlloc(
+        char* p,
+        size_t size) {
+    // This allocation should be within ourselves
+    FAISS_ASSERT(p >= start_ && p < end_);
+
+    // All allocations should have been adjusted to a multiple of 16 bytes
+    FAISS_ASSERT(size % 16 == 0);
+
+    // This is on our stack
+    // Allocations should be freed in the reverse order they are made
+    if (p + size != head_) {
+        FAISS_ASSERT(p + size == head_);
+    }
+
+    head_ = p;
+}
+
+std::string PipeCluster::PinStack::toString() const {
+    std::stringstream s;
+
+    s << "Temp Pin Host Memory " << ": Total memory " << allocSize_ << " ["
+      << (void*)start_ << ", " << (void*)end_ << ")\n";
+    s << "     Available memory " << (size_t)(end_ - head_) << " ["
+      << (void*)head_ << ", " << (void*)end_ << ")\n";
+    s << "     High water temp alloc " << highWaterMemoryUsed_ << "\n";
+
+    return s.str();
+}
+
+size_t PipeCluster::getPinTempAvail() const {
+    return stack_.getSizeAvailable();
+}
+
+std::string PipeCluster::PinTempStatus() const {
+    return stack_.toString();
+}
+
+void* PipeCluster::allocPinTemp(size_t size) {
+    // All allocations should have been adjusted to a multiple of 16 bytes
+    FAISS_ASSERT(size % 16 == 0);
+    return (void*)stack_.getAlloc(size);
+}
+
+void PipeCluster::freePinTemp(
+        void* p,
+        size_t size) {
+    FAISS_ASSERT(p);
+
+    stack_.deAlloc((char*)p, size);
 }
 
 }
