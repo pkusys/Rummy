@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 #include <unistd.h>
+#include <cuda_runtime.h>
 
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/platform_macros.h>
@@ -24,11 +25,14 @@
 #include <faiss/utils/Heap.h>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/impl/FlatIndex.cuh>
+#include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
+#include <faiss/gpu/utils/DeviceTensor.cuh>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
 #include <faiss/pipe/SmallGpuIndex.h>
 #include <faiss/gpu/GpuResources.h>
+#include <faiss/pipe/PipeKernel.cuh>
 
 namespace faiss {
 
@@ -43,9 +47,10 @@ IndexIVFPipe::IndexIVFPipe(
     size_t d_,
     size_t nlist_,
     IndexIVFPipeConfig config_,
+    gpu::PipeGpuResources* pipe_provider_,
     MetricType metric_type_)
-    : Index(d_, metric_type_), ivfPipeConfig_(config_),\
-    minPagedSize_(kMinPageSize), metric_type(metric_type_), metric_arg(0) {
+    : Index(d_, metric_type_), ivfPipeConfig_(config_), minPagedSize_(kMinPageSize)\
+    , metric_type(metric_type_), metric_arg(0), pipe_provider(pipe_provider_) {
     provider = new gpu::RestrictedGpuResources();
     resources_ = provider->getResources();
     //gpuindex:

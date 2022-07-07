@@ -26,6 +26,8 @@ namespace gpu {
 
 class PipeTempMemory;
 
+class PipeGpuResources;
+
 struct MemBlock{
     
     //The allocate pages
@@ -35,6 +37,33 @@ struct MemBlock{
     int count = -1;
     bool valid = true;
 };
+
+
+/// A RAII object that manages a temporary memory(managed by pipeGpuResources) request
+struct PipeGpuMemoryReservation {
+    PipeGpuMemoryReservation();
+    PipeGpuMemoryReservation(
+            PipeGpuResources* r,
+            int dev,
+            void* p,
+            size_t sz);
+    PipeGpuMemoryReservation(PipeGpuMemoryReservation&& m) noexcept;
+    ~PipeGpuMemoryReservation();
+
+    PipeGpuMemoryReservation& operator=(PipeGpuMemoryReservation&& m);
+
+    inline void* get() {
+        return data;
+    }
+
+    void release();
+
+    PipeGpuResources* res;
+    int device;
+    void* data;
+    size_t size;
+};
+
 
 /// Implementation of the GpuResources object that provides for
 /// pipelined and oversubscribed memory management.
@@ -99,6 +128,17 @@ public:
     /// Free a set of pages
     void deallocMemory(int sta, int num);
 
+    /// Allocate temp memory for size bytes
+
+    void* allocTempMemory(int device, size_t size);
+
+    /// Deallocate temp memory
+
+    void deallocTempMemory(int device, void* p);
+
+    /// Returns a temporary memory allocation via a RAII object
+    PipeGpuMemoryReservation allocMemoryHandle(int device, size_t size);
+
 private:
 
     /// Have GPU resources been initialized for this device yet?
@@ -149,6 +189,10 @@ public: // For debug
 
     /// The cluster info on CPU side
     PipeCluster *pc_;
+
+    /// Set of currently outstanding memory allocations per device
+    /// device -> (alloc request, allocated ptr)
+    std::unordered_map<int, std::unordered_map<void*, size_t>> allocs_;
 };
 
 // Typical strorage for query vectors

@@ -6,12 +6,17 @@
  */
 
 #include <faiss/gpu/impl/scan/IVFInterleavedImpl.cuh>
+#include <faiss/pipe/PipeKernelImpl.cuh>
 
 namespace faiss {
 namespace gpu {
 
 #if GPU_MAX_SELECTION_K >= 2048
 IVF_INTERLEAVED_IMPL(64, 2048, 8)
+
+//KERNEL_COMPUTE_C_IMPL(64, 2048, 8)
+KERNEL_COMPUTE_IMPL(64, 2048, 8)
+
 #endif
 
 } // namespace gpu

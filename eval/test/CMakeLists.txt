@@ -16,6 +16,9 @@ target_link_libraries(test_cpu_quantizer PRIVATE faiss)
 add_executable(test_gpu_quantizer EXCLUDE_FROM_ALL test_gpu_quantizer.cpp)
 target_link_libraries(test_gpu_quantizer PRIVATE faiss)
 
+add_executable(test_compute_reduce EXCLUDE_FROM_ALL test_compute_reduce.cu)
+target_link_libraries(test_compute_reduce PRIVATE faiss)
+
 add_executable(test_heap EXCLUDE_FROM_ALL test_heap.cpp)
 target_link_libraries(test_heap PRIVATE faiss)
 

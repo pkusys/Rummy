@@ -6,11 +6,15 @@
  */
 
 #include <faiss/gpu/impl/scan/IVFInterleavedImpl.cuh>
+#include <faiss/pipe/PipeKernelImpl.cuh>
 
 namespace faiss {
 namespace gpu {
 
 IVF_INTERLEAVED_IMPL(128, 128, 3)
+
+//KERNEL_COMPUTE_C_IMPL(128, 128, 3)
+KERNEL_COMPUTE_IMPL(128, 128, 3)
 
 }
 } // namespace faiss

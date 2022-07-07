@@ -66,6 +66,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
     Mem.resize(BCluSize.size());
+    MemBytes.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
     DeviceMem.resize(BCluSize.size());
 
@@ -215,6 +216,7 @@ void PipeCluster::mallocPinnedMem(){
                 }
 
                 Mem[index] = p;
+                MemBytes[index] = bytes;
 
                 // ADD the original memory address
                 nop = nop + nobytes/sizeof(float);

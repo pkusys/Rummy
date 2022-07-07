@@ -119,7 +119,7 @@ int main() {
 
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(
-            d, ncentroids, config, faiss::METRIC_L2);
+            d, ncentroids, config, nullptr, faiss::METRIC_L2);
     index->train(nt, trainvecs);
     delete[] trainvecs;
 
@@ -162,7 +162,6 @@ int main() {
 
         float* coarse_dis;
         int* ori_idx;
-        int64_t* ori_offset;
         size_t* bcluster_per_query;
         size_t actual_nprobe;
         int* query_bcluster_matrix;
@@ -173,7 +172,7 @@ int main() {
         int maxquery_per_bcluster;
         int* bcluster_query_matrix;
 
-        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset,\
+        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx,\
              &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
              &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
              &bcluster_query_matrix);
@@ -190,7 +189,7 @@ int main() {
         for (int i = 0; i < 10; i++) {
             printf("query %2d: width %zu \n", i, bcluster_per_query[i]);
             for(int j = 0; j < actual_nprobe; j++) {
-                printf("%d cluster::offset %ld,dis:%f   ", ori_idx[j + i * actual_nprobe], ori_offset[j + i * actual_nprobe], coarse_dis[j + i * actual_nprobe]);
+                printf("%d cluster,dis:%f   ", ori_idx[j + i * actual_nprobe], coarse_dis[j + i * actual_nprobe]);
             }
             printf("\n");
             
@@ -223,7 +222,6 @@ int main() {
 
         free(coarse_dis);
         free(ori_idx);
-        free(ori_offset);
         free(bcluster_per_query);
         free(query_bcluster_matrix);
         free(bcluster_list);
@@ -249,7 +247,6 @@ int main() {
 
         float* coarse_dis;
         int* ori_idx;
-        int64_t* ori_offset;
         size_t* bcluster_per_query;
         size_t actual_nprobe;
         int* query_bcluster_matrix;
@@ -260,14 +257,13 @@ int main() {
         int maxquery_per_bcluster;
         int* bcluster_query_matrix;
 
-        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx, &ori_offset,\
+        index->sample_list(nq, queries.data(), &coarse_dis, &ori_idx,\
              &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
              &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
              &bcluster_query_matrix);
 
         free(coarse_dis);
         free(ori_idx);
-        free(ori_offset);
         free(bcluster_per_query);
         free(query_bcluster_matrix);
         free(bcluster_list);

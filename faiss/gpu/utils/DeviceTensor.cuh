@@ -9,6 +9,7 @@
 
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/Tensor.cuh>
+#include <faiss/gpu/PipeGpuResources.h>
 
 namespace faiss {
 namespace gpu {

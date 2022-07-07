@@ -106,6 +106,9 @@ public: // For convenient, may change the mode to public later
     // Each balanced cluster's storage
     std::vector<float*> Mem;
 
+    // Each balanced cluster's intearleaved code memory size.
+    std::vector<size_t> MemBytes;
+
     // Each cluster's storage on Device
     std::vector<int> DeviceMem;
 

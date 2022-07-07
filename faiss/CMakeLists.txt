@@ -85,6 +85,7 @@ set(FAISS_SRC
   pipe/RestrictedGpuResources.cpp
   pipe/SmallGpuIndex.cu
   pipe/SmallGpuIndexFlat.cu
+  pipe/PipeKernel.cu
 )
 
 set(FAISS_HEADERS
@@ -183,6 +184,8 @@ set(FAISS_HEADERS
   pipe/RestrictedGpuResources.h
   pipe/SmallGpuIndex.h
   pipe/SmallGpuIndexFlat.h
+  pipe/PipeKernel.cuh
+  pipe/PipeKernelImpl.cuh
 )
 
 if(NOT WIN32)

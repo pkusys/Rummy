@@ -15,6 +15,8 @@
 #include <faiss/pipe/SmallGpuIndexFlat.h>
 #include <faiss/gpu/GpuIndicesOptions.h>
 #include <faiss/gpu/GpuResources.h>
+#include <faiss/gpu/PipeGpuResources.h>
+#include <faiss/gpu/utils/Tensor.cuh>
 #include <faiss/pipe/IndexFlatPipe.h>
 #include <faiss/pipe/RestrictedGpuResources.h>
 #include <faiss/invlists/InvertedLists.h>
@@ -56,23 +58,23 @@ struct IndexIVFPipeConfig {
 
 };
 
-    /// Default CPU search size for which we use paged copies
-    constexpr size_t kMinPageSize = (size_t)256 * 1024;
+/// Default CPU search size for which we use paged copies
+constexpr size_t kMinPageSize = (size_t)256 * 1024;
 
-    /// Size above which we page copies from the CPU to GPU (non-paged
+/// Size above which we page copies from the CPU to GPU (non-paged
     /// memory usage)
-    constexpr size_t kNonPinnedPageSize = (size_t)256 * 1024;
+constexpr size_t kNonPinnedPageSize = (size_t)256 * 1024;
 
-    // Default size for which we page add or search
-    constexpr size_t kAddPageSize = (size_t)256 * 1024;
+// Default size for which we page add or search
+constexpr size_t kAddPageSize = (size_t)256 * 1024;
 
-    // Or, maximum number of vectors to consider per page of add or search
-    constexpr size_t kAddVecSize = (size_t)256 * 1024;
+// Or, maximum number of vectors to consider per page of add or search
+constexpr size_t kAddVecSize = (size_t)256 * 1024;
 
-    // Use a smaller search size, as precomputed code usage on IVFPQ
-    // requires substantial amounts of memory
-    // FIXME: parameterize based on algorithm need
-    constexpr size_t kSearchVecSize = (size_t)32 * 1024;
+// Use a smaller search size, as precomputed code usage on IVFPQ
+// requires substantial amounts of memory
+// FIXME: parameterize based on algorithm need
+constexpr size_t kSearchVecSize = (size_t)32 * 1024;
 
 /* Piped IndexIVF, with GPU quantizer */
 struct IndexIVFPipe: Index {
@@ -89,7 +91,9 @@ struct IndexIVFPipe: Index {
 
     ClusteringParameters cp; ///< to override default clustering params
 
-    gpu::RestrictedGpuResources* provider;///< the GPU Resource provider for the GPU quantizer.
+    gpu::RestrictedGpuResources* provider;///< the Restricted GPU Resource provider for the GPU quantizer.
+
+    gpu::PipeGpuResources* pipe_provider;///< the Pipe GPU Resource provider for temp memory allocation in compute() and reduce().
 
     IndexIVFPipeConfig ivfPipeConfig_;///< Our configuration options
 
@@ -131,6 +135,7 @@ struct IndexIVFPipe: Index {
             size_t d_,
             size_t nlist_,
             IndexIVFPipeConfig config_,
+            gpu::PipeGpuResources* pipe_provider_,
             MetricType = METRIC_L2);
 
     ~IndexIVFPipe();
@@ -255,7 +260,6 @@ struct IndexIVFPipe: Index {
      * @param x vectors to query
      * @param coarse_dis[n][nprobe]  the matrix of distance between origional clusters and queries
      * @param ori_idx[n][nprobe] the matrix of id of origional clusters
-     * @param ori_offset[n][nprobe] the matrix of offset of origional cluster[i][j] in query_bcluster_matrix[i] 
      * @param bcluster_per_query[n] the number of balanced clusters to be searched for query i.
      * @param actual_nprobe actual number of probes
      * @param query_bcluster_matrix[n][maxcluster_per_query] the matrix of id of balanced clusters
@@ -271,7 +275,6 @@ struct IndexIVFPipe: Index {
             const float* x,
             float** coarse_dis,
             int** ori_idx,
-            idx_t** ori_offset,
             size_t** bcluster_per_query,
             size_t *actual_nprobe,
             int** query_bcluster_matrix,
@@ -307,7 +310,7 @@ struct IndexIVFPipe: Index {
 
     *coarse_dis = new float[n * nprobe];
     *ori_idx = new int[n * nprobe];
-    *ori_offset = new idx_t[n * nprobe];
+    idx_t* ori_offset = new idx_t[n * nprobe];
     *bcluster_per_query = new size_t[n];
 
     // to eliminate the data dependence of the loop from line 348-365, we allocate 8 buffer to save them saparately.
@@ -358,7 +361,7 @@ struct IndexIVFPipe: Index {
             int idx3 = clus_id * 8 * n + omp_get_thread_num() * n + query_per_cluster[idx2];
             clusters_query_matrix[idx3] = i;            
             query_per_cluster[idx2] ++;
-            (*ori_offset)[idx] = offset;
+            ori_offset[idx] = offset;
             offset += (size_t)(pipe_cluster->O2Bcnt[clus_id]);                           
         }
         (*bcluster_per_query)[i] = offset;
@@ -451,7 +454,7 @@ struct IndexIVFPipe: Index {
 #pragma omp parallel for if (nt > 1)
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < nprobe; j++) {
-            idx_t offset = (*ori_offset)[i * nprobe + j] ;
+            idx_t offset = ori_offset[i * nprobe + j] ;
             std::vector<int> &bclusters_probe =
                          pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
             memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), bclusters_probe.size() * sizeof(int));                              
@@ -465,6 +468,7 @@ struct IndexIVFPipe: Index {
 
     free(clusters_query_matrix);
     free(query_per_cluster);
+    free(ori_offset);
 
     return;
 }
@@ -569,19 +573,5 @@ struct IndexIVFPipe: Index {
 };
 
 
-struct IndexIVFStats {
-    size_t nq;                // nb of queries run
-    size_t nlist;             // nb of inverted lists scanned
-    size_t ndis;              // nb of distances computed
-    size_t nheap_updates;     // nb of times the heap was updated
-    double quantization_time; // time spent quantizing vectors (in ms)
-    double search_time;       // time spent searching lists (in ms)
-
-    IndexIVFStats() {
-        reset();
-    }
-    void reset();
-    void add(const IndexIVFStats& other);
-};
 
 }
