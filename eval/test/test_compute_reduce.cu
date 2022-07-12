@@ -13,7 +13,6 @@
 #include <omp.h>
 #include <sys/time.h>
 #include <unistd.h>
-
 #include <faiss/IndexFlat.h>
 #include <faiss/index_io.h>
 #include <faiss/pipe/IndexIVFPipe.h>
@@ -24,8 +23,10 @@
 #include <faiss/gpu/utils/DeviceTensor.cuh>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/CopyUtils.cuh>
+#include <faiss/gpu/impl/IVFInterleaved.cuh>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/pipe/PipeKernel.cuh>
+#include <thrust/device_vector.h>
 #include <cstdio>
 #include <omp.h>
 #include <cinttypes>
@@ -68,6 +69,7 @@ void search_demo(
             size_t* labels,
             bool display){
                 
+            printf("\n entering search_demo\n");
             float* coarse_dis;
             int* ori_idx;
             size_t* bcluster_per_query;
@@ -133,7 +135,7 @@ void search_demo(
                 }
             }
             else{
-                printf("[%.3f s] Query results (vector ids, then distances)(only display shape info):\n",
+                printf("[%.3f s] Query results (only display shape info):\n",
                     elapsed() - t0);
 
                 printf("nquery:%zu,maxbcluster_per_query:%zu, actual_nprobe:%zu\n", n, maxbcluster_per_query, actual_nprobe);
@@ -228,9 +230,9 @@ void search_demo(
                             res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {(int)n, (int)k});
 
                 // compute() test
-                
+                cudaStreamSynchronize(stream);
                 t1 = elapsed();
-                printf("[%.3f s]start to measure time of compute\n", t1 - t0);
+                printf("[%.3f s]start to measure time of compute and reduce\n", t1 - t0);
 
                 faiss::gpu::runKernelCompute(
                     index->d,
@@ -247,17 +249,9 @@ void search_demo(
                     ListLength,
                     index->metric_type,
                     stream);
-                cudaStreamSynchronize(stream);
-                printf("{FINISHED in %.3f ms}\n", (elapsed() - t1) * 1000);
 
-                t1 = elapsed();
-                printf("[%.3f s]start to measure time of reduce\n", t1 - t0);
-
-
-                //reduce() test
+                //reduce() test 
                 
-                
-
                 faiss::gpu::runKernelReduce(
                     maxbcluster_per_query,
                     best_distances,
@@ -308,6 +302,10 @@ void search_demo(
             faiss::gpu::DeviceTensor<float, 2, true> queries_gpu = \
                             faiss::gpu::toDeviceTemporary<float, 2>(res_, 0, (float*)x, stream, {(int)n, index->d});
 
+            faiss::gpu::DeviceTensor<int, 2, true> query_cluster_matrix_whole = \
+                            faiss::gpu::toDeviceTemporary<int, 2>(res_, 0, query_bcluster_matrix, stream, {(int)n, (int)maxbcluster_per_query});
+
+            t1 = elapsed();
             for (int i = 0; i < query_split; i++) {
                 printf("the %dth query split\n", i);
                 int query_start = i * n / query_split;
@@ -324,26 +322,14 @@ void search_demo(
                     int cluster_end = (j + 1) * maxbcluster_per_query / cluster_split;
                     int cluster_cnt = cluster_end - cluster_start;
 
-
-
                     faiss::gpu::DeviceTensor<float, 3, true> best_distances(
                         res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {query_cnt, cluster_cnt, (int)k});
                     faiss::gpu::DeviceTensor<size_t, 3, true> best_indices(
                                 res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {query_cnt, cluster_cnt, (int)k});
                     
+                    auto query_cluster_matrix_gpu_ = query_cluster_matrix_whole.narrow(0, query_start, query_cnt);
+                    auto query_cluster_matrix_gpu = query_cluster_matrix_gpu_.narrow(1, cluster_start, cluster_cnt);
 
-                    int* cluster_query_sub = new int[query_cnt * cluster_cnt];
-                    for (int i0 = query_start; i0 < query_end; i0++) {
-                        memcpy (cluster_query_sub + (i0 - query_start) * cluster_cnt,
-                            query_bcluster_matrix + i0 * maxbcluster_per_query + cluster_start,
-                            sizeof(int) * cluster_cnt);
-                    }
-
-
-                    faiss::gpu::DeviceTensor<int, 2, true> query_cluster_matrix_gpu = \
-                            faiss::gpu::toDeviceTemporary<int, 2>(res_, 0, cluster_query_sub, stream, {(int)query_cnt, (int)cluster_cnt});
-                    cudaStreamSynchronize(stream);
-                    delete[] cluster_query_sub;
 
                     faiss::gpu::DeviceTensor<float, 2, true>* out_distances = new faiss::gpu::DeviceTensor<float, 2, true>(
                                 res_, faiss::gpu::makeDevAlloc(faiss::gpu::AllocType::Other, stream), {query_cnt, (int)k});
@@ -352,12 +338,10 @@ void search_demo(
 
 
                     
-                    
-
                     // compute() test
                     
+                    //cudaStreamSynchronize(stream);
                     
-                    t1 = elapsed();
 
                     faiss::gpu::runKernelCompute(
                         index->d,
@@ -396,7 +380,7 @@ void search_demo(
                         *out_indices,
                         stream);
 
-                    accumulated += elapsed() - t1;
+                    
 
                 }
             }
@@ -414,14 +398,10 @@ void search_demo(
                                 res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {(int)n, (int)k});
 
 
-            t1 = elapsed();
-
-
             faiss::gpu::DeviceTensor<size_t*, 2, true> result_indices_gpu = \
                             faiss::gpu::toDeviceTemporary<size_t*, 2>(res_, 0, result_indices.data(), stream, {(int)n, cluster_split});
             faiss::gpu::DeviceTensor<float*, 2, true> result_distances_gpu = \
                             faiss::gpu::toDeviceTemporary<float*, 2>(res_, 0, result_distances.data(), stream, {(int)n, cluster_split});
-        
 
             runKernelMerge(
                 cnt_per_query_gpu,
@@ -452,6 +432,78 @@ void search_demo(
                 }
             }
 
+
+
+
+
+            faiss::gpu::DeviceTensor<float, 2, true> outDistances(
+                        res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {(int)n, (int)k});
+            faiss::gpu::DeviceTensor<faiss::Index::idx_t, 2, true> outIndices(
+                                res_, faiss::gpu::makeTempAlloc(faiss::gpu::AllocType::Other, stream), {(int)n, (int)k});
+            faiss::gpu::DeviceTensor<float, 3, true> residualBase(res_, faiss::gpu::makeTempAlloc( faiss::gpu::AllocType::Other, stream), {(int)n, (int)maxbcluster_per_query, index->d});
+                            faiss::gpu::DeviceTensor<int, 2, true> query_cluster_matrix_gpu = \
+                        faiss::gpu::toDeviceTemporary<int, 2>(res_, 0, query_bcluster_matrix, stream, {(int)n, (int)maxbcluster_per_query});
+            
+            printf("{FINISHED IN ACCUMULATE TIME %f ms}\n", accumulated * 1000);
+
+            printf("test origional\n");
+
+            /// test origional kernel function
+
+
+            thrust::device_vector<void*> deviceListDataPointers_;
+
+            /// Device representation of all inverted list index pointers
+            /// id -> data
+            thrust::device_vector<void*> deviceListIndexPointers_;
+
+            /// Device representation of all inverted list lengths
+            /// id -> length in number of vectors
+            thrust::device_vector<int> deviceListLengths_;
+
+
+
+            deviceListDataPointers_.clear();
+            deviceListIndexPointers_.clear();
+            deviceListLengths_.clear();
+
+
+            deviceListDataPointers_.resize(pc->bnlist, nullptr);
+            deviceListIndexPointers_.resize(pc->bnlist, nullptr);
+            deviceListLengths_.resize(pc->bnlist, 0);
+
+            for (int i = 0;i < pc->bnlist; i++) {
+                deviceListDataPointers_[i] = ListDataP_vec[i];
+                deviceListIndexPointers_[i] = ListIndexP_vec[i];
+                deviceListLengths_[i] = pc->BCluSize[i];
+                ListDataP_vec.resize(pc->bnlist);
+                ListIndexP_vec.resize(pc->bnlist);
+            }
+
+
+            t1 = elapsed();
+
+            faiss::gpu::runIVFInterleavedScan(
+                queries_gpu,
+                query_cluster_matrix_gpu,
+                deviceListDataPointers_,
+                deviceListIndexPointers_,
+                index->ivfPipeConfig_.indicesOptions,
+                deviceListLengths_,
+                k,
+                index->metric_type,
+                false,
+                residualBase,
+                nullptr,
+                outDistances,
+                outIndices,
+                res_);
+
+            cudaStreamSynchronize(stream);
+            printf("{FINISHED in %.3f ms}\n", (elapsed() - t1) * 1000);
+
+            printf("%d\n", pc->bnlist);
+
             free(coarse_dis);
             free(ori_idx);
             free(bcluster_per_query);
@@ -459,7 +511,7 @@ void search_demo(
             free(bcluster_list);
             free(query_per_bcluster);
             free(bcluster_query_matrix);
-            printf("{FINISHED IN ACCUMULATE TIME %f ms}\n", accumulated * 1000);
+            
     }
 
 
@@ -605,7 +657,6 @@ int main() {
 
     return 0;
 }
-
 
 
 
