@@ -729,10 +729,11 @@ Index::idx_t IndexIVFPipe::decode_listno(const uint8_t* code) const {
 void IndexIVFPipe::balance() {
 
     // The size of each origional cluster.
-    std::vector<int> sizes;
+    std::vector<int> sizes(nlist);
 
     // The data pointer of each origional cluster.
-    std::vector<float*> pointers;
+    std::vector<float*> pointers(nlist);
+    std::vector<int*> indexes(nlist);  // We only use int32 to store index id.
 
     for (size_t i = 0; i < nlist; i++) {
 
@@ -743,17 +744,31 @@ void IndexIVFPipe::balance() {
         float *codes_list_float = (float*)malloc(bytes);
         memcpy(codes_list_float, codes_list, bytes);
 
+        const idx_t* index_list = invlists->get_ids(i);
+        bytes = list_size * sizeof(int);
+        int *index_list_int = (int*)malloc(bytes);
+        // memcpy(index_list_int, index_list, bytes);
+
+        // Conver index id type (int64 -> int32)
+        for (int j = 0; j < list_size; j++){
+            index_list_int[j] = index_list[j];
+        }
+
         // Free the original data in case of Host memory oversubscription
         invlists->free_codes(i);
+
+        invlists->free_idx(i);
         
-        sizes.push_back((int)list_size);
-        pointers.push_back(codes_list_float);
+        sizes[i] = (int)list_size;
+        pointers[i] = codes_list_float;
+        indexes[i] = index_list_int;
     }
 
     // sleep(10);
 
     // Construct PipeCluster from the origional clusters' data.
-    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers, ivfPipeConfig_.interleavedLayout);
+    pipe_cluster = new PipeCluster(nlist, d, sizes, pointers, 
+        indexes, ivfPipeConfig_.interleavedLayout);
     delete invlists;
     balanced = true;
 

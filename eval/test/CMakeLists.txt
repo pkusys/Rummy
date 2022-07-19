@@ -24,3 +24,6 @@ target_link_libraries(test_heap PRIVATE faiss)
 
 add_executable(test_multi_sort EXCLUDE_FROM_ALL test_multi_sort.cpp)
 target_link_libraries(test_multi_sort PRIVATE faiss)
+
+add_executable(test_pipetensor EXCLUDE_FROM_ALL test_pipetensor.cpp)
+target_link_libraries(test_pipetensor PRIVATE faiss)

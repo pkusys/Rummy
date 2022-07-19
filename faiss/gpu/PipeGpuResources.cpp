@@ -420,6 +420,18 @@ MemBlock PipeGpuResources::allocMemory(int size){
     
 }
 
+void* PipeGpuResources::allocTemMemory(size_t size){
+    // Default is zero
+    int dev = 0;
+    return tempMemory_[dev]->allocMemory(size);
+}
+
+void PipeGpuResources::deallocTemMemory(void *p, size_t size){
+    // Default is zero
+    int dev = 0;
+    tempMemory_[dev]->deallocMemory(p, size);
+}
+
 void PipeGpuResources::updatePages(const std::vector<int> &pages, 
         const std::vector<int> &clus){
 
@@ -520,6 +532,9 @@ char* PipeTempMemory::PipeStack::getAlloc(size_t size){
     auto sizeRemaining = getSizeAvailable();
 
     FAISS_ASSERT_FMT(size <= sizeRemaining, "The PipeStack is not enough for size: %zu", size);
+
+    // All allocations should have been adjusted to a multiple of 16 bytes
+    FAISS_ASSERT(size % 16 == 0);
 
     char* startAlloc = head_;
     char* endAlloc = head_ + size;

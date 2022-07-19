@@ -22,40 +22,28 @@ double elapsed() {
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+// #define gpumem
+#ifdef gpumem
 int main(){
-    // Test Heap
-    // std::vector<int> vec = {5,5,5,5,9,8,4,5,5,12,34};
-    // std::vector<int> vecv = {1,2,3,4,5,6,7,8,9,10,11};
-    // int ca = 4;
-    // faiss::HeapType t = faiss::HeapType::MAXHEAP;
-    // faiss::PipeHeap<int, int> heap(ca, t);
-    // for(int i = 0; i < vec.size(); i++){
-    //     int m = heap.read();
-    //     if (heap.isFull() && vec[i] >= m)
-    //         continue;
-    //     std::pair<int,int> p(vec[i],vecv[i]);
-    //     heap.push(p);
-    //     auto ret = heap.dump();
-    //     for(int i = 0; i < ret.size(); i++){
-    //         std::cout << ret[i] << " ";
-    //     }
-    //     std::cout << "\n";
-    // }
-    
+    omp_set_num_threads(8);
     double t0, t1;
     int nlist = 1024, d = 128;
     std::vector<int> sizes;
     std::vector<float *> pointer;
+    std::vector<int *> ids;
     for (int i = 0; i < nlist; i++){
         float *p;
+        int *in;
         int sz = (i%2 ==0 ? 256*32: 512*32);
         p = (float*) malloc(sz * d * sizeof(float));
+        in = (int*) malloc(sz * sizeof(int));
         sizes.push_back(sz);
         pointer.push_back(p);
+        ids.push_back(in);
     }
 
     t0 = elapsed();
-    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, true);
+    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, ids, true);
     printf("Nlist after balaced: %d %d, Time: %.3f s\n", pc->bnlist, 
         pc->bcs * pc->bnlist, elapsed() - t0);
     
@@ -87,3 +75,47 @@ int main(){
     std::cout << "\n";
     delete pc;
 }
+#else
+int main(){
+
+    omp_set_num_threads(8);
+    double t0, t1;
+    int nlist = 1024, d = 128;
+    std::vector<int> sizes;
+    std::vector<float *> pointer;
+    std::vector<int *> ids;
+    for (int i = 0; i < nlist; i++){
+        float *p;
+        int *in;
+        int sz = (i%2 ==0 ? 256: 512);
+        p = (float*) malloc(sz * d * sizeof(float));
+        in = (int*) malloc(sz * sizeof(int));
+        sizes.push_back(sz);
+        pointer.push_back(p);
+        ids.push_back(in);
+    }
+
+    t0 = elapsed();
+    faiss::PipeCluster *pc = new faiss::PipeCluster(nlist, d, sizes, pointer, ids, true);
+    printf("Nlist after balaced: %d %d, Time: %.3f s\n", pc->bnlist, 
+        pc->bcs * pc->bnlist, elapsed() - t0);
+
+    std::cout << pc->PinTempStatus() << "\n";
+
+    float *pointer1 = (float *)pc->allocPinTemp(1024);
+
+    std::cout << pc->PinTempStatus() << "\n";
+
+    pc->freePinTemp(pointer1, 1024);
+    // pc->freePinTemp(pointer1, 2048); // Cause failure
+
+    std::cout << pc->PinTempStatus() << "\n";
+
+    pointer1 = (float *)pc->allocPinTemp(32*1024);
+
+    std::cout << pc->PinTempStatus() << "\n";
+
+    delete pc;
+
+}
+#endif

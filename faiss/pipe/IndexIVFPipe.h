@@ -79,6 +79,8 @@ constexpr size_t kSearchVecSize = (size_t)32 * 1024;
 /* Piped IndexIVF, with GPU quantizer */
 struct IndexIVFPipe: Index {
 
+    // using idx_t = Index::idx_t;
+
     size_t nlist;
     MetricType metric_type;
     float metric_arg; ///< argument of the metric type
@@ -353,7 +355,7 @@ struct IndexIVFPipe: Index {
     for (size_t i = 0; i < n; i++) {
         int thisthread = omp_get_thread_num();
         // if (i == 0)
-        //     printf("Opm works well ? : %d\n", omp_in_parallel());
+        //     printf("Omp works well ? : %d\n", omp_in_parallel());
         size_t offset = 0;
         for (size_t j = 0; j < nprobe; j++) {
             int idx = i * nprobe + j;
@@ -423,10 +425,12 @@ struct IndexIVFPipe: Index {
                 int offset_2 = 0;
                 #pragma unroll
                 for (int k = 0; k < 8; k++) {
-                    memcpy (q + offset_x * (*maxquery_per_bcluster) + offset_2, clusters_query_matrix + i*8*n + k*n, sizeof(int) * (query_per_cluster[k * nlist + i]));
+                    memcpy (q + offset_x * (*maxquery_per_bcluster) + offset_2, 
+                        clusters_query_matrix + i*8*n + k*n, sizeof(int) * (query_per_cluster[k * nlist + i]));
                     offset_2 += query_per_cluster[k * nlist + i];
                 }
-                std::fill(q + offset_x * (*maxquery_per_bcluster) + query_per_cluster_total[i], q + (offset_x + 1) * (*maxquery_per_bcluster), -1);
+                std::fill(q + offset_x * (*maxquery_per_bcluster) + query_per_cluster_total[i], 
+                    q + (offset_x + 1) * (*maxquery_per_bcluster), -1);
                 offset_x += 1;
             }
         }
@@ -458,7 +462,8 @@ struct IndexIVFPipe: Index {
             idx_t offset = ori_offset[i * nprobe + j] ;
             std::vector<int> &bclusters_probe =
                          pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];
-            memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), bclusters_probe.size() * sizeof(int));                              
+            memcpy ((void *)&p[i * max_bclusters_cnt + offset], bclusters_probe.data(), 
+                bclusters_probe.size() * sizeof(int));                              
         }
         std::fill(p + i * max_bclusters_cnt + (*bcluster_per_query)[i], p + (i + 1) * max_bclusters_cnt, -1);
     }
