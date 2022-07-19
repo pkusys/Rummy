@@ -420,6 +420,18 @@ MemBlock PipeGpuResources::allocMemory(int size){
     
 }
 
+void* PipeGpuResources::allocTemMemory(size_t size){
+    // Default is zero
+    int dev = 0;
+    return tempMemory_[dev]->allocMemory(size);
+}
+
+void PipeGpuResources::deallocTemMemory(void *p, size_t size){
+    // Default is zero
+    int dev = 0;
+    tempMemory_[dev]->deallocMemory(p, size);
+}
+
 void PipeGpuResources::updatePages(const std::vector<int> &pages, 
         const std::vector<int> &clus){
 

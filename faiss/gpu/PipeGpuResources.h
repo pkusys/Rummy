@@ -90,6 +90,12 @@ public:
     /// Allocate free GPU memory for size pages (Already cudamalloc, just return a pointer here)
     MemBlock allocMemory(int size);
 
+    /// Allocate temp device memory
+    void* allocTemMemory(size_t size);
+
+    /// DeAllocate temp device memory
+    void deallocTemMemory(void *p, size_t size);
+
     /// Update the pages info according to responding allocated clusters
     void updatePages(const std::vector<int> &pages, const std::vector<int> &clus);
 
