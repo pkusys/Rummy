@@ -376,8 +376,8 @@ __host__ void PipeTensor<T, Dim, InnerContig, IndexT>::memh2d(cudaStream_t strea
     }
 
     CUDA_VERIFY(cudaMemcpyAsync(
-                this->hostdata_,
                 this->devicedata_,
+                this->hostdata_,
                 this->getSizeInBytes(),
                 cudaMemcpyHostToDevice,
                 stream));
@@ -392,8 +392,8 @@ __host__ void PipeTensor<T, Dim, InnerContig, IndexT>::memd2h(cudaStream_t strea
     FAISS_ASSERT(this->devicedata_ != nullptr);
 
     CUDA_VERIFY(cudaMemcpyAsync(
-                this->devicedata_,
                 this->hostdata_,
+                this->devicedata_,
                 this->getSizeInBytes(),
                 cudaMemcpyDeviceToHost,
                 stream));
