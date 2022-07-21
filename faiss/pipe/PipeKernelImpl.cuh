@@ -27,7 +27,8 @@
             IndicesOptions indicesOptions,                          \
             int* deviceListLengths_,                                \
             faiss::MetricType metric,                               \
-            cudaStream_t stream){                                   \
+            cudaStream_t stream,                                    \
+            int split){                                             \
         FAISS_ASSERT(k <= WARP_Q);                                  \
                                                                     \
         IVFINT_METRICS_PIPE(THREADS, WARP_Q, THREAD_Q);             \
@@ -51,7 +52,8 @@
             IndicesOptions indicesOptions,                          \
             int* deviceListLengths_,                                \
             faiss::MetricType metric,                               \
-            cudaStream_t stream)
+            cudaStream_t stream,                                    \
+            int split)
 
 #define KERNEL_COMPUTE_CALL(WARP_Q)    \
     KernelComputeImpl_##WARP_Q##_( \
@@ -68,7 +70,8 @@
             indicesOptions,             \
             deviceListLengths_,         \
             metric,                     \
-            stream)
+            stream,                     \
+            split)
 
 
 

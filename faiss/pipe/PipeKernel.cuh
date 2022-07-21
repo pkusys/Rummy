@@ -61,7 +61,14 @@ __global__ void KernelCompute(
     int queryId = queryids(queryno);
 
     int probeId = blockIdx.x;
+    int splitId = blockIdx.z;
     int listId = query_cluster_matrix(queryno)[probeId];
+    int numVecs = listLengths[listId];
+    int split = gridDim.z;
+    int splitStart = numVecs * splitId / split;
+    int splitEnd = numVecs * (splitId + 1) / split;
+    int splitCnt = splitEnd - splitStart;
+    
 
     // Safety guard in case NaNs in input cause no list ID to be generated, or
     // we have more nprobe than nlist
@@ -79,7 +86,7 @@ __global__ void KernelCompute(
 
     auto query = queries(queryId).data();
     auto vecsBase = (EncodeT*)allListData[listId];
-    int numVecs = listLengths[listId];
+    vecsBase = vecsBase + splitStart;
 
     constexpr auto kInit = Metric::kDirection ? kFloatMin : kFloatMax;
 
@@ -102,7 +109,7 @@ __global__ void KernelCompute(
     __syncthreads();
 
     // How many vector blocks of 32 are in this list?
-    int numBlocks = utils::divUp(numVecs, 32);
+    int numBlocks = utils::divUp(splitCnt, 32);
 
     // Number of EncodeT words per each dimension of block of 32 vecs
     constexpr int bytesPerVectorBlockDim = Codec::kEncodeBits * 32 / 8;
@@ -118,7 +125,7 @@ __global__ void KernelCompute(
 
         // This is the vector a given lane/thread handles
         int vec = block * kWarpSize + laneId;
-        bool valid = vec < numVecs;
+        bool valid = vec < splitCnt;
 
         // This is where this warp begins reading data
         EncodeT* data = vecsBase + block * wordsPerVectorBlock;
@@ -183,7 +190,7 @@ __global__ void KernelCompute(
         }
 
         if (valid) {
-            heap.addThreadQ(dist.reduce(), vec);
+            heap.addThreadQ(dist.reduce(), vec + splitStart);
         }
 
         heap.checkThreadQ();
@@ -193,6 +200,8 @@ __global__ void KernelCompute(
 
     auto distanceOutBase = best_distances(queryno)[probeId].data();
     auto indicesOutBase =  best_indices(queryno)[probeId].data();
+    distanceOutBase += splitId * k;
+    indicesOutBase += splitId * k;
 
     for (int i = threadIdx.x; i < k; i += blockDim.x) {
         distanceOutBase[i] = smemK[i];
@@ -212,7 +221,7 @@ __global__ void KernelCompute(
 
 #define IVFINT_RUN_PIPE(CODEC_TYPE, METRIC_TYPE, THREADS, NUM_WARP_Q, NUM_THREAD_Q) \
     do {                                                                       \
-        dim3 grid(maxcluster_per_query, nquery);                        \
+        dim3 grid(maxcluster_per_query, nquery, split);                        \
         KernelCompute<                                                         \
                     CODEC_TYPE,                                                \
                     METRIC_TYPE,                                               \
@@ -286,14 +295,15 @@ void runKernelCompute(
     IndicesOptions indicesOptions,
     int* deviceListLengths_,
     faiss::MetricType metric,
-    cudaStream_t stream);
+    cudaStream_t stream,
+    int split);
 
 
 
 // Second pass of IVF list scanning to perform final k-selection and look up the
 // user indices
    /** compute the k nearest neighbor for each query.
-     * @param cluster_per_query[nq] number of clusters per query.
+     * @param maxcluster_cnt max number of cluster per query
      * @param best_indices[nq][maxcluster_per_query][k] the k best indices for every (query, cluster). The pointer matrix is on GPU.
      *  (query,cluster) compute.
      * @param best_distances[nq][maxcluster_per_query] the k best distances for every (query, cluster). The pointer matrix is on GPU.
@@ -309,7 +319,7 @@ void runKernelCompute(
      *  The pointer matrix is on GPU. The pointers are pointed to GPU.
      */
 void runKernelReduce(
-        int maxcluster,
+        int maxcluster_cnt,
         PipeTensor<float, 3, true> best_distances,
         PipeTensor<size_t, 3, true> best_indices,
         PipeTensor<int, 2, true> query_bcluster_matrix,
@@ -319,7 +329,53 @@ void runKernelReduce(
         bool dir,
         PipeTensor<float, 2, true> out_distances,
         PipeTensor<size_t, 2, true> out_indices,
-        cudaStream_t stream);
+        cudaStream_t stream,
+        int split);
+
+
+
+// Wrapper
+   /** compute the k nearest neighbor for each query.
+     * @param
+     * @param
+     * @param
+     * @param
+     * @param maxcluster_cnt max number of cluster per query
+     * @param best_indices[nq][maxcluster_per_query][k] the k best indices for every (query, cluster). The pointer matrix is on GPU.
+     *  (query,cluster) compute.
+     * @param best_distances[nq][maxcluster_per_query] the k best distances for every (query, cluster). The pointer matrix is on GPU.
+     *  (query,cluster) compute.
+     * @param query_bcluster_matrix[nq][maxcluster_per_query] the pointer matrix is on GPU.
+     * The pointers are pointed to GPU.
+     * @param k k nearest neighbor
+     * @param ListIndices[bcluster_cnt] the indices data of each cluster.
+     * @param dir
+     * @param out_indices[nq] the pointer of space to solve the final k best's indices.
+     *  The pointer matrix is on GPU. The pointers are pointed to GPU.
+     * @param out_distances[nq] the pointer of space to solve the final k best's distance.
+     *  The pointer matrix is on GPU. The pointers are pointed to GPU.
+     */
+void runKernelComputeReduce(
+    int d,
+    int k,
+    int nquery,
+    int maxcluster_per_query,
+    PipeTensor<int, 1, true> queryids,
+    PipeTensor<float, 2, true> queries,
+    PipeTensor<int, 2, true> query_cluster_matrix,
+    void** deviceListDataPointers_,
+    IndicesOptions indicesOptions,
+    int* deviceListLengths_,
+    void** listIndices,
+    faiss::MetricType metric,
+    bool dir,
+    PipeTensor<float, 2, true> out_distances,
+    PipeTensor<size_t, 2, true> out_indices,
+    PipeCluster* pc,
+    PipeGpuResources* pipe_res,
+    int device,
+    int split);
+
 
 
 // Second pass of IVF list scanning to perform final k-selection and look up the

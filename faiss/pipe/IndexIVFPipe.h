@@ -35,7 +35,7 @@ static double elapsed() {
 */
 
 struct IndexIVFPipeConfig {
-    inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_64_BIT),\
+    inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_32_BIT),\
                 device(0), memorySpace(gpu::MemorySpace::Device) {}
 
     /// Use the alternative memory layout for the IVF lists

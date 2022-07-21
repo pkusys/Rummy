@@ -28,7 +28,8 @@ __global__ void KernelReduce(
         IndicesOptions opt,
         bool dir,
         PipeTensor<float, 2, true> out_distances,
-        PipeTensor<size_t, 2, true> out_indices) {
+        PipeTensor<size_t, 2, true> out_indices,
+        int split) {
     int queryId = blockIdx.x;
 
     constexpr int kNumWarps = ThreadsPerBlock / kWarpSize;
@@ -50,7 +51,7 @@ __global__ void KernelReduce(
             heap(kFloatMax, kMaxUInt32, smemK, smemV, k);
 
     // nprobe x k
-    int num = maxcluster * k;
+    int num = maxcluster * k * split;
 
     float* distanceBase = best_distances(queryId).data();
     int limit = utils::roundDown(num, kWarpSize);
@@ -65,8 +66,8 @@ __global__ void KernelReduce(
         // dedicate each to the high and low words of a uint32_t
         static_assert(GPU_MAX_SELECTION_K <= 65536, "");
 
-        uint32_t curProbe = i / k;
-        uint32_t curK = i % k;
+        uint32_t curProbe = i / (k * split);
+        uint32_t curK = i % (k * split);
         uint32_t index = (curProbe << 16) | (curK & (uint32_t)0xffff);
 
         int listId = query_bcluster_matrix(queryId)[curProbe];
@@ -80,8 +81,8 @@ __global__ void KernelReduce(
 
     // Handle warp divergence separately
     if (i < num) {
-        uint32_t curProbe = i / k;
-        uint32_t curK = i % k;
+        uint32_t curProbe = i / (k * split);
+        uint32_t curK = i % (k * split);
         uint32_t index = (curProbe << 16) | (curK & (uint32_t)0xffff);
 
         int listId = query_bcluster_matrix(queryId)[curProbe];
@@ -214,7 +215,8 @@ void runKernelReduce(
         bool dir,
         PipeTensor<float, 2, true> out_distances,
         PipeTensor<size_t, 2, true> out_indices,
-        cudaStream_t stream) {
+        cudaStream_t stream,
+        int split) {
 #define IVF_REDUCE(THREADS, NUM_WARP_Q, NUM_THREAD_Q)               \
     KernelReduce<THREADS, NUM_WARP_Q, NUM_THREAD_Q>                 \
             <<<best_distances.getSize(0), THREADS, 0, stream>>>(    \
@@ -227,7 +229,8 @@ void runKernelReduce(
                     indicesOptions,                                 \
                     dir,                                            \
                     out_distances,                                  \
-                    out_indices)
+                    out_indices,                                    \
+                    split)
 
     if (k == 1) {
         IVF_REDUCE(128, 1, 1);
@@ -265,7 +268,8 @@ void runKernelCompute(
     IndicesOptions indicesOptions,
     int* deviceListLengths_,
     faiss::MetricType metric,
-    cudaStream_t stream)
+    cudaStream_t stream,
+    int split)
     {
     // caught for exceptions at a higher level
     FAISS_ASSERT(k <= GPU_MAX_SELECTION_K);
@@ -291,6 +295,87 @@ void runKernelCompute(
     }
 #endif
 }
+
+
+void runKernelComputeReduce(
+    int d,
+    int k,
+    int nquery,
+    int maxcluster_per_query,
+    PipeTensor<int, 1, true> queryids,
+    PipeTensor<float, 2, true> queries,
+    PipeTensor<int, 2, true> query_cluster_matrix,
+    void** deviceListDataPointers_,
+    IndicesOptions indicesOptions,
+    int* deviceListLengths_,
+    void** listIndices,
+    faiss::MetricType metric,
+    bool dir,
+    PipeTensor<float, 2, true> out_distances,
+    PipeTensor<size_t, 2, true> out_indices,
+    PipeCluster* pc,
+    PipeGpuResources* pipe_res,
+    int device,
+    int split)
+{
+
+    auto exe_stream = pipe_res->getExecuteStream(device);
+
+    bool goodsplit = false;
+    for(int i = 1; i <= 256; i *= 2) {
+        if(split == i) {
+            goodsplit = true;
+        }
+    }
+    FAISS_ASSERT(goodsplit == true);
+
+    PipeTensor<float, 3, true> best_distances({nquery, maxcluster_per_query, (int)k * split}, pc);
+    best_distances.setResources(pc, pipe_res);
+    best_distances.reserve();
+    PipeTensor<size_t, 3, true> best_indices({nquery, maxcluster_per_query, (int)k * split}, pc);
+    best_indices.setResources(pc, pipe_res);
+    best_indices.reserve();
+
+    runKernelCompute(d,
+                     k,
+                     nquery,
+                     maxcluster_per_query,
+                     queryids,
+                     queries,
+                     query_cluster_matrix,
+                     best_indices,
+                     best_distances,
+                     deviceListDataPointers_,
+                     indicesOptions,
+                     deviceListLengths_,
+                     metric,
+                     exe_stream,
+                     split);
+
+
+                    
+
+                    //reduce() test
+                
+    runKernelReduce(maxcluster_per_query,
+                    best_distances,
+                    best_indices,
+                    query_cluster_matrix,
+                    k,
+                    listIndices,
+                    indicesOptions,
+                    dir,
+                    out_distances,
+                    out_indices,
+                    exe_stream,
+                    split);
+
+
+
+}
+
+
+
 
 void runKernelMerge(
     PipeTensor<int, 1, true> cnt_per_query,

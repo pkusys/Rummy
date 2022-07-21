@@ -151,7 +151,7 @@ public:
     __host__ void memd2h(cudaStream_t stream = 0);
 
     /// Reserve device temp memory
-    __host__ void reserve(cudaStream_t stream = 0);
+    __host__ void reserve();
 
 
     /// Copies a CPU std::vector<T> into ourselves, allocating memory for it.
@@ -246,27 +246,27 @@ public:
 
     /// Returns a raw pointer to the start of our data.
     __host__ __device__ inline DataPtrType devicedata() {
-        //FAISS_ASSERT(this->devicedata_ != nullptr);
+        GPU_FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata_;
     }
 
     /// Returns a raw pointer to the end of our data, assuming
     /// continuity
     __host__ __device__ inline DataPtrType deviceend() {
-        //FAISS_ASSERT(this->devicedata_ != nullptr);
+        GPU_FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata() + numElements();
     }
 
     /// Returns a raw pointer to the start of our data (const).
     __host__ __device__ inline const DataPtrType devicedata() const {
-        //FAISS_ASSERT(this->devicedata_ != nullptr);
+        GPU_FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata_;
     }
 
     /// Returns a raw pointer to the end of our data, assuming
     /// continuity (const)
     __host__ __device__ inline DataPtrType deviceend() const {
-        //FAISS_ASSERT(this->devicedata_ != nullptr);
+        GPU_FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata() + numElements();
     }
 

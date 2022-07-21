@@ -409,7 +409,7 @@ template <
         int Dim,
         bool InnerContig,
         typename IndexT>
-__host__ void PipeTensor<T, Dim, InnerContig, IndexT>::reserve(cudaStream_t stream) {
+__host__ void PipeTensor<T, Dim, InnerContig, IndexT>::reserve() {
     if (!devicedata_){
         auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
         this->devicedata_ = (DataPtrType)pgr->allocTemMemory(real_size);

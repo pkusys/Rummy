@@ -111,6 +111,7 @@ public: // For convenient, may change the mode to public later
 
     // Each balanced cluster's intearleaved code memory size.
     std::vector<size_t> MemBytes;
+    
     // Each balanced cluster's idx
     std::vector<int*> Balan_ids;
 
