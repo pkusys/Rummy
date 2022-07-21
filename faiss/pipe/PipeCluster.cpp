@@ -22,8 +22,8 @@ namespace {
 // Default expected standard variance ratio
 const float StdVarRation = 0.2;
 
-// Default Temp PinMemory Size (64 MiB)
-const int PinTempSize = 64 * 1024 * 1024;
+// Default Temp PinMemory Size (should be 64 MiB)
+const int PinTempSize = 256 * 1024 * 1024;
 
 float StdDev (std::vector<int> vec){
     // Caculate the mean value

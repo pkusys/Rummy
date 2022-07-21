@@ -40,6 +40,16 @@ template <
 class PipeSubTensor;
 }
 
+
+namespace traits {
+
+template <typename T>
+struct PipeDefaultPtrTraits {
+    typedef T* PtrType;
+};
+
+}
+
 /**
    Templated multi-dimensional array that supports strided access of
    elements. Main access is through `operator[]`; e.g.,
@@ -67,7 +77,7 @@ public:
     typedef T DataType;
     typedef IndexT IndexType;
     enum { IsInnerContig = InnerContig };
-    typedef T* DataPtrType;
+    typedef typename traits::DefaultPtrTraits<T>::PtrType DataPtrType;
     typedef PipeTensor<T, Dim, InnerContig, IndexT> PipeTensorType;
 
     /// Set the two resources
@@ -89,11 +99,11 @@ public:
     PipeTensor(PipeTensor<T, Dim, InnerContig, IndexT>&& t);
 
     /// Assignment
-    __host__ PipeTensor<T, Dim, InnerContig, IndexT>&
+    __host__ __device__ PipeTensor<T, Dim, InnerContig, IndexT>&
     operator=(PipeTensor<T, Dim, InnerContig, IndexT>& t);
 
     /// Move assignment
-    __host__ PipeTensor<T, Dim, InnerContig, IndexT>&
+    __host__ __device__ PipeTensor<T, Dim, InnerContig, IndexT>&
     operator=(PipeTensor<T, Dim, InnerContig, IndexT>&& t);
 
     /// Constructor that calculates strides with no padding
@@ -119,7 +129,7 @@ public:
     /// Constructor that takes arbitrary size/stride arrays.
     /// Errors if you attempt to pass non-contiguous strides to a
     /// contiguous tensor.
-    __host__
+    __host__ __device__
     PipeTensor(DataPtrType data, DataPtrType data2,
            const IndexT sizes[Dim],
            const IndexT strides[Dim]);
@@ -139,6 +149,10 @@ public:
 
     /// Data transfer
     __host__ void memd2h(cudaStream_t stream = 0);
+
+    /// Reserve device temp memory
+    __host__ void reserve(cudaStream_t stream = 0);
+
 
     /// Copies a CPU std::vector<T> into ourselves, allocating memory for it.
     /// The total size of our Tensor must match vector<T>::size(), though
@@ -232,27 +246,27 @@ public:
 
     /// Returns a raw pointer to the start of our data.
     __host__ __device__ inline DataPtrType devicedata() {
-        FAISS_ASSERT(this->devicedata_ != nullptr);
+        //FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata_;
     }
 
     /// Returns a raw pointer to the end of our data, assuming
     /// continuity
     __host__ __device__ inline DataPtrType deviceend() {
-        FAISS_ASSERT(this->devicedata_ != nullptr);
+        //FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata() + numElements();
     }
 
     /// Returns a raw pointer to the start of our data (const).
     __host__ __device__ inline const DataPtrType devicedata() const {
-        FAISS_ASSERT(this->devicedata_ != nullptr);
+        //FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata_;
     }
 
     /// Returns a raw pointer to the end of our data, assuming
     /// continuity (const)
     __host__ __device__ inline DataPtrType deviceend() const {
-        FAISS_ASSERT(this->devicedata_ != nullptr);
+        //FAISS_ASSERT(this->devicedata_ != nullptr);
         return devicedata() + numElements();
     }
 
@@ -282,14 +296,25 @@ public:
         return reinterpret_cast<U*>(devicedata_);
     }
 
-    /// Returns a read/write view of a portion of our tensor.
+    /// Returns a read/write view of a portion of our tensor, hostdata_.
     __host__ __device__ inline detail::PipeSubTensor<PipeTensorType, Dim - 1, T>
     operator[](IndexT);
 
-    /// Returns a read/write view of a portion of our tensor.
+    /// Returns a read/write view of a portion of our tensor, devicedata_.
+    __host__ __device__ inline detail::PipeSubTensor<PipeTensorType, Dim - 1, T>
+    operator()(IndexT);
+
+
+    /// Returns a read/write view of a portion of our tensor, hostdata_.
     __host__ __device__ inline const detail::
             PipeSubTensor<PipeTensorType, Dim - 1, T>
             operator[](IndexT) const;
+
+    /// Returns a read/write view of a portion of our tensor, devicedata_.
+    __host__ __device__ inline const detail::
+            PipeSubTensor<PipeTensorType, Dim - 1, T>
+            operator()(IndexT) const;
+
 
     /// Returns the size of a given dimension, `[0, Dim - 1]`. No bounds
     /// checking.
@@ -482,6 +507,120 @@ private:
 namespace detail {
 
 /// Specialization for a view of a single value (0-dimensional)
+
+
+/// Specialization for a view of a single value (0-dimensional)
+template <typename TensorType, typename U>
+class PipeSubTensor<TensorType, 0, U> {
+   public:
+    __host__ __device__ PipeSubTensor<TensorType, 0, U> operator=(
+            typename TensorType::DataType val) {
+        *data_ = val;
+        return *this;
+    }
+
+    // operator T&
+    __host__ __device__ operator typename TensorType::DataType &() {
+        return *data_;
+    }
+
+    // const operator T& returning const T&
+    __host__ __device__ operator const typename TensorType::DataType &() const {
+        return *data_;
+    }
+
+    // operator& returning T*
+    __host__ __device__ typename TensorType::DataType* operator&() {
+        return data_;
+    }
+
+    // const operator& returning const T*
+    __host__ __device__ const typename TensorType::DataType* operator&() const {
+        return data_;
+    }
+
+    /// Returns a raw accessor to our slice.
+    __host__ __device__ inline typename TensorType::DataPtrType data() {
+        return data_;
+    }
+
+    /// Returns a raw accessor to our slice (const).
+    __host__ __device__ inline const typename TensorType::DataPtrType data()
+            const {
+        return data_;
+    }
+
+    /// Cast to a different datatype.
+    template <typename T>
+    __host__ __device__ T& as() {
+        return *dataAs<T>();
+    }
+
+    /// Cast to a different datatype (const).
+    template <typename T>
+    __host__ __device__ const T& as() const {
+        return *dataAs<T>();
+    }
+
+    /// Cast to a different datatype
+    template <typename T>
+    __host__ __device__ inline T* dataAs() {
+        return reinterpret_cast<T*>(data_);
+    }
+
+    /// Cast to a different datatype (const)
+    template <typename T>
+    __host__ __device__ inline T* dataAs()
+            const {
+        return reinterpret_cast<T*>(data_);
+    }
+
+    /// Use the texture cache for reads
+    __device__ inline typename TensorType::DataType ldg() const {
+#if __CUDA_ARCH__ >= 350
+        return __ldg(data_);
+#else
+        return *data_;
+#endif
+    }
+
+    /// Use the texture cache for reads; cast as a particular type
+    template <typename T>
+    __device__ inline T ldgAs() const {
+#if __CUDA_ARCH__ >= 350
+        return __ldg(dataAs<T>());
+#else
+        return as<T>();
+#endif
+    }
+
+   protected:
+    /// One dimension greater can create us
+    friend class PipeSubTensor<TensorType, 1, U>;
+
+    /// Our parent tensor can create us
+    friend class PipeTensor<
+            typename TensorType::DataType,
+            1,
+            TensorType::IsInnerContig,
+            typename TensorType::IndexType>;
+
+    __host__ __device__ inline PipeSubTensor(
+            TensorType& t,
+            typename TensorType::DataPtrType data)
+            : tensor_(t), data_(data) {}
+
+    /// The tensor we're referencing
+    TensorType& tensor_;
+
+    /// Where our value is located
+    typename TensorType::DataPtrType const data_;
+};
+
+
+
+
+
 /// PipeSubTensor is either a GPU tensor or a CPU tensor
 template <typename TensorType, int SubDim, typename U>
 class PipeSubTensor{
@@ -641,6 +780,22 @@ PipeTensor<T, Dim, InnerContig, IndexT>::operator[](IndexT index) {
             detail::PipeSubTensor<PipeTensorType, Dim, T>(*this, hostdata_)[index]);
 }
 
+/// () can only acess device data
+template <
+        typename T,
+        int Dim,
+        bool InnerContig,
+        typename IndexT>
+__host__ __device__ inline detail::PipeSubTensor<
+        PipeTensor<T, Dim, InnerContig, IndexT>,
+        Dim - 1,
+        T>
+PipeTensor<T, Dim, InnerContig, IndexT>::operator()(IndexT index) {
+    return detail::PipeSubTensor<PipeTensorType, Dim - 1, T>(
+            detail::PipeSubTensor<PipeTensorType, Dim, T>(*this, devicedata_)[index]);
+}
+
+
 template <
         typename T,
         int Dim,
@@ -655,6 +810,24 @@ PipeTensor<T, Dim, InnerContig, IndexT>::operator[](IndexT index) const {
             detail::PipeSubTensor<PipeTensorType, Dim, T>(
                     const_cast<PipeTensorType&>(*this), hostdata_)[index]);
 }
+
+
+template <
+        typename T,
+        int Dim,
+        bool InnerContig,
+        typename IndexT>
+__host__ __device__ inline const detail::PipeSubTensor<
+        PipeTensor<T, Dim, InnerContig, IndexT>,
+        Dim - 1,
+        T>
+PipeTensor<T, Dim, InnerContig, IndexT>::operator()(IndexT index) const {
+    return detail::PipeSubTensor<PipeTensorType, Dim - 1, T>(
+            detail::PipeSubTensor<PipeTensorType, Dim, T>(
+                    const_cast<PipeTensorType&>(*this), devicedata_)[index]);
+}
+
+
 
 
 } // namespace gpu

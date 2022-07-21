@@ -20,15 +20,15 @@ constexpr uint32_t kMaxUInt32 = std::numeric_limits<uint32_t>::max();
 template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void KernelReduce(
         int maxcluster,
-        Tensor<float, 3, true> best_distances,
-        Tensor<size_t, 3, true> best_indices,
-        Tensor<int, 2, true> query_bcluster_matrix,
+        PipeTensor<float, 3, true> best_distances,
+        PipeTensor<size_t, 3, true> best_indices,
+        PipeTensor<int, 2, true> query_bcluster_matrix,
         int k,
         void** listIndices,
         IndicesOptions opt,
         bool dir,
-        Tensor<float, 2, true> out_distances,
-        Tensor<size_t, 2, true> out_indices) {
+        PipeTensor<float, 2, true> out_distances,
+        PipeTensor<size_t, 2, true> out_indices) {
     int queryId = blockIdx.x;
 
     constexpr int kNumWarps = ThreadsPerBlock / kWarpSize;
@@ -52,7 +52,7 @@ __global__ void KernelReduce(
     // nprobe x k
     int num = maxcluster * k;
 
-    float* distanceBase = best_distances[queryId].data();
+    float* distanceBase = best_distances(queryId).data();
     int limit = utils::roundDown(num, kWarpSize);
 
     // This will keep our negation factor
@@ -69,7 +69,7 @@ __global__ void KernelReduce(
         uint32_t curK = i % k;
         uint32_t index = (curProbe << 16) | (curK & (uint32_t)0xffff);
 
-        int listId = query_bcluster_matrix[queryId][curProbe];
+        int listId = query_bcluster_matrix(queryId)[curProbe];
         if (listId != -1) {
             // Adjust the value we are selecting based on the sorting order
             heap.addThreadQ(distanceBase[i] * adj, index);
@@ -84,7 +84,7 @@ __global__ void KernelReduce(
         uint32_t curK = i % k;
         uint32_t index = (curProbe << 16) | (curK & (uint32_t)0xffff);
 
-        int listId = query_bcluster_matrix[queryId][curProbe];
+        int listId = query_bcluster_matrix(queryId)[curProbe];
         if (listId != -1) {
             heap.addThreadQ(distanceBase[i] * adj, index);
         }
@@ -95,7 +95,7 @@ __global__ void KernelReduce(
 
     for (int i = threadIdx.x; i < k; i += blockDim.x) {
         // Re-adjust the value we are selecting based on the sorting order
-        out_distances[queryId][i] = smemK[i] * adj;
+        out_distances(queryId)[i] = smemK[i] * adj;
         auto packedIndex = smemV[i];
 
         // We need to remap to the user-provided indices
@@ -107,8 +107,8 @@ __global__ void KernelReduce(
             uint32_t curProbe = packedIndex >> 16;
             uint32_t curK = packedIndex & 0xffff;
 
-            int listId = query_bcluster_matrix[queryId][curProbe];
-            int listOffset = best_indices[queryId][curProbe][curK];
+            int listId = query_bcluster_matrix(queryId)[curProbe];
+            int listOffset = best_indices(queryId)[curProbe][curK];
 
             if (opt == INDICES_32_BIT) {
                 index = (Index::idx_t)((int*)listIndices[listId])[listOffset];
@@ -119,7 +119,7 @@ __global__ void KernelReduce(
             }
         }
 
-        out_indices[queryId][i] = index;
+        out_indices(queryId)[i] = index;
     }
 }
 
@@ -127,14 +127,14 @@ __global__ void KernelReduce(
 // Final-pass kernel
 template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void KernelMerge(
-        Tensor<int, 1, true> cnt_per_query,
-        Tensor<float*, 2, true> best_distances,
-        Tensor<size_t*, 2, true> best_indices,
+        PipeTensor<int, 1, true> cnt_per_query,
+        PipeTensor<float*, 2, true> best_distances,
+        PipeTensor<size_t*, 2, true> best_indices,
         int k,
         IndicesOptions opt,
         bool dir,
-        Tensor<float, 2, true> out_distances,
-        Tensor<size_t, 2, true> out_indices) {
+        PipeTensor<float, 2, true> out_distances,
+        PipeTensor<size_t, 2, true> out_indices) {
     int queryId = blockIdx.x;
 
     constexpr int kNumWarps = ThreadsPerBlock / kWarpSize;
@@ -156,10 +156,10 @@ __global__ void KernelMerge(
             heap(kFloatMax, kMaxUInt32, smemK, smemV, k);
 
     // nprobe x k
-    int num = cnt_per_query[queryId] * k;
+    int num = cnt_per_query(queryId) * k;
 
-    float** distanceBase = best_distances[queryId].data();
-    size_t** indicesBase = best_indices[queryId].data();
+    float** distanceBase = best_distances(queryId).data();
+    size_t** indicesBase = best_indices(queryId).data();
     int limit = utils::roundDown(num, kWarpSize);
 
     // This will keep our negation factor
@@ -192,8 +192,8 @@ __global__ void KernelMerge(
 
     for (int i = threadIdx.x; i < k; i += blockDim.x) {
         // Re-adjust the value we are selecting based on the sorting order
-        out_distances[queryId][i] = smemK[i] * adj;
-        out_indices[queryId][i] = smemV[i];
+        out_distances(queryId)[i] = smemK[i] * adj;
+        out_indices(queryId)[i] = smemV[i];
     }
 }
 
@@ -205,15 +205,15 @@ __global__ void KernelMerge(
 
 void runKernelReduce(
         int maxcluster,
-        Tensor<float, 3, true> best_distances,
-        Tensor<size_t, 3, true> best_indices,
-        Tensor<int, 2, true> query_bcluster_matrix,
+        PipeTensor<float, 3, true> best_distances,
+        PipeTensor<size_t, 3, true> best_indices,
+        PipeTensor<int, 2, true> query_bcluster_matrix,
         int k,
         void** listIndices,
         IndicesOptions indicesOptions,
         bool dir,
-        Tensor<float, 2, true> out_distances,
-        Tensor<size_t, 2, true> out_indices,
+        PipeTensor<float, 2, true> out_distances,
+        PipeTensor<size_t, 2, true> out_indices,
         cudaStream_t stream) {
 #define IVF_REDUCE(THREADS, NUM_WARP_Q, NUM_THREAD_Q)               \
     KernelReduce<THREADS, NUM_WARP_Q, NUM_THREAD_Q>                 \
@@ -250,61 +250,17 @@ void runKernelReduce(
     }
 #endif
 }
-/*
-void runKernelCompute_c(
-    int d,
-    int k,
-    int bcluster_cnt,
-    int nquery,
-    int maxquery_per_bcluster,
-    Tensor<int, 1, true> listids,
-    Tensor<float, 2, true> queries,
-    Tensor<int, 1, true> query_per_cluster,
-    Tensor<int, 2, true> bcluster_query_matrix,
-    Tensor<size_t*, 2, true> best_indices,  //<output
-    Tensor<float*, 2, true> best_distances, //<output
-    void** deviceListDataPointers_,
-    void** deviceListIndexPointers_,
-    IndicesOptions indicesOptions,
-    int* deviceListLengths_,
-    faiss::MetricType metric,
-    cudaStream_t stream)
-    {
-    // caught for exceptions at a higher level
-    FAISS_ASSERT(k <= GPU_MAX_SELECTION_K);
-
-    if (k == 1) {
-        KERNEL_COMPUTE_C_CALL(1);
-    } else if (k <= 32) {
-        KERNEL_COMPUTE_C_CALL(32);
-    } else if (k <= 64) {
-        KERNEL_COMPUTE_C_CALL(64);
-    } else if (k <= 128) {
-        KERNEL_COMPUTE_C_CALL(128);
-    } else if (k <= 256) {
-        KERNEL_COMPUTE_C_CALL(256);
-    } else if (k <= 512) {
-        KERNEL_COMPUTE_C_CALL(512);
-    } else if (k <= 1024) {
-        KERNEL_COMPUTE_C_CALL(1024);
-    }
-#if GPU_MAX_SELECTION_K >= 2048
-    else if (k <= 2048) {
-        KERNEL_COMPUTE_C_CALL(2048);
-    }
-#endif
-}*/
 
 void runKernelCompute(
     int d,
     int k,
     int nquery,
     int maxcluster_per_query,
-    Tensor<int, 1, true> queryids,
-    Tensor<float, 2, true> queries,
-    Tensor<int, 2, true> query_cluster_matrix,
-    Tensor<size_t, 3, true> best_indices,
-    Tensor<float, 3, true> best_distances,
+    PipeTensor<int, 1, true> queryids,
+    PipeTensor<float, 2, true> queries,
+    PipeTensor<int, 2, true> query_cluster_matrix,
+    PipeTensor<size_t, 3, true> best_indices,
+    PipeTensor<float, 3, true> best_distances,
     void** deviceListDataPointers_,
     IndicesOptions indicesOptions,
     int* deviceListLengths_,
@@ -337,14 +293,14 @@ void runKernelCompute(
 }
 
 void runKernelMerge(
-    Tensor<int, 1, true> cnt_per_query,
-    Tensor<float*, 2, true> result_distances,
-    Tensor<size_t*, 2, true> result_indices,
+    PipeTensor<int, 1, true> cnt_per_query,
+    PipeTensor<float*, 2, true> result_distances,
+    PipeTensor<size_t*, 2, true> result_indices,
     int k,
     IndicesOptions indicesOptions,
     bool dir,
-    Tensor<float, 2, true> out_distances,
-    Tensor<size_t, 2, true> out_indices,
+    PipeTensor<float, 2, true> out_distances,
+    PipeTensor<size_t, 2, true> out_indices,
     cudaStream_t stream)
     {
 

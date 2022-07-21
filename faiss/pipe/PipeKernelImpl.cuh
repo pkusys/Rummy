@@ -10,72 +10,6 @@
 #include <faiss/pipe/PipeKernel.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
 
-/*
-#define KERNEL_COMPUTE_C_IMPL(THREADS, WARP_Q, THREAD_Q)        \
-                                                                    \
-    void KernelComputecImpl_##WARP_Q##_(                 \
-            int d,                                                  \
-            int k,                                                  \
-            int bcluster_cnt,                                       \
-            int maxquery_per_bcluster,                              \
-            Tensor<int, 1, true> listids,                           \
-            Tensor<float, 2, true> queries,                         \
-            Tensor<int, 1, true> query_per_cluster,                 \
-            Tensor<int, 2, true> bcluster_query_matrix,             \
-            Tensor<size_t*, 2, true> best_indices,                  \
-            Tensor<float*, 2, true> best_distances,                 \
-            void** deviceListDataPointers_,                         \
-            void** deviceListIndexPointers_,                        \
-            IndicesOptions indicesOptions,                          \
-            int* deviceListLengths_,                                \
-            faiss::MetricType metric,                               \
-            cudaStream_t stream){                                   \
-        FAISS_ASSERT(k <= WARP_Q);                                  \
-                                                                    \
-        IVFINT_METRICS_PIPE_C(THREADS, WARP_Q, THREAD_Q);             \
-                                                                    \
-        CUDA_TEST_ERROR();                                          \
-    }
-
-#define KERNEL_COMPUTE_C_DECL(WARP_Q)                                 \
-                                                                    \
-    void KernelComputecImpl_##WARP_Q##_(                             \
-            int d,                                                  \
-            int k,                                                  \
-            int bcluster_cnt,                                       \
-            int maxquery_per_bcluster,                              \
-            Tensor<int, 1, true> listids,                           \
-            Tensor<float, 2, true> queries,                         \
-            Tensor<int, 1, true> query_per_cluster,                 \
-            Tensor<int, 2, true> bcluster_query_matrix,             \
-            Tensor<size_t*, 2, true> best_indices,                  \
-            Tensor<float*, 2, true> best_distances,                 \
-            void** deviceListDataPointers_,                         \
-            void** deviceListIndexPointers_,                        \
-            IndicesOptions indicesOptions,                          \
-            int* deviceListLengths_,                                \
-            faiss::MetricType metric,                               \
-            cudaStream_t stream)
-
-#define KERNEL_COMPUTE_C_CALL(WARP_Q)    \
-    KernelComputecImpl_##WARP_Q##_( \
-            d,                          \
-            k,                          \
-            bcluster_cnt,               \
-            maxquery_per_bcluster,      \
-            listids,                    \
-            queries,                    \
-            query_per_cluster,          \
-            bcluster_query_matrix,      \
-            best_indices,               \
-            best_distances,             \
-            deviceListDataPointers_,    \
-            deviceListIndexPointers_,   \
-            indicesOptions,             \
-            deviceListLengths_,         \
-            metric,                     \
-            stream)
-*/
 
 #define KERNEL_COMPUTE_IMPL(THREADS, WARP_Q, THREAD_Q)            \
                                                                     \
@@ -84,11 +18,11 @@
             int k,                                                  \
             int nquery,                                             \
             int maxcluster_per_query,                               \
-            Tensor<int, 1, true> queryids,                          \
-            Tensor<float, 2, true> queries,                         \
-            Tensor<int, 2, true> query_cluster_matrix,              \
-            Tensor<size_t, 3, true> best_indices,                   \
-            Tensor<float, 3, true> best_distances,                  \
+            PipeTensor<int, 1, true> queryids,                          \
+            PipeTensor<float, 2, true> queries,                         \
+            PipeTensor<int, 2, true> query_cluster_matrix,              \
+            PipeTensor<size_t, 3, true> best_indices,                   \
+            PipeTensor<float, 3, true> best_distances,                  \
             void** deviceListDataPointers_,                         \
             IndicesOptions indicesOptions,                          \
             int* deviceListLengths_,                                \
@@ -108,11 +42,11 @@
             int k,                                                  \
             int nquery,                                       \
             int maxcluster_per_query,                              \
-            Tensor<int, 1, true> queryids,                           \
-            Tensor<float, 2, true> queries,                         \
-            Tensor<int, 2, true> query_cluster_matrix,              \
-            Tensor<size_t, 3, true> best_indices,                  \
-            Tensor<float, 3, true> best_distances,                 \
+            PipeTensor<int, 1, true> queryids,                           \
+            PipeTensor<float, 2, true> queries,                         \
+            PipeTensor<int, 2, true> query_cluster_matrix,              \
+            PipeTensor<size_t, 3, true> best_indices,                  \
+            PipeTensor<float, 3, true> best_distances,                 \
             void** deviceListDataPointers_,                         \
             IndicesOptions indicesOptions,                          \
             int* deviceListLengths_,                                \

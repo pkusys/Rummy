@@ -7,6 +7,7 @@
 
 #include <faiss/gpu/GpuFaissAssert.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
+#include <faiss/gpu/utils/StaticUtils.h>
 #include <cstring>
 #include <limits>
 #include <utility> // std::move
@@ -35,25 +36,26 @@ template <
         bool InnerContig,
         typename IndexT>
 __host__ PipeTensor<T, Dim, InnerContig, IndexT>::~PipeTensor() {
+    auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
     if (state_ == AllocState::HostOwner) {
         FAISS_ASSERT(this->hostdata_ != nullptr);
         // delete[] this->data_;
-        pc->freePinTemp(this->hostdata_, this->getSizeInBytes());
+        pc->freePinTemp(this->hostdata_, real_size);
         this->hostdata_ = nullptr;
     }
     else if (state_ == AllocState::DeviceOwner) {
         FAISS_ASSERT(this->devicedata_ != nullptr);
-        pgr->deallocTemMemory(this->devicedata_, this->getSizeInBytes());
+        pgr->deallocTemMemory(this->devicedata_, real_size);
         this->devicedata_ = nullptr;
     }
     else if (state_ == AllocState::BothOwner){
         FAISS_ASSERT(this->hostdata_ != nullptr);
         // delete[] this->data_;
-        pc->freePinTemp(this->hostdata_, this->getSizeInBytes());
+        pc->freePinTemp(this->hostdata_, real_size);
         this->hostdata_ = nullptr;
 
         FAISS_ASSERT(this->devicedata_ != nullptr);
-        pgr->deallocTemMemory(this->devicedata_, this->getSizeInBytes());
+        pgr->deallocTemMemory(this->devicedata_, real_size);
         this->devicedata_ = nullptr;
     }
 }
@@ -83,7 +85,7 @@ template <
         int Dim,
         bool InnerContig,
         typename IndexT>
-__host__ PipeTensor<T, Dim, InnerContig, IndexT>& PipeTensor<
+__host__ __device__ PipeTensor<T, Dim, InnerContig, IndexT>& PipeTensor<
         T,
         Dim,
         InnerContig,
@@ -191,7 +193,8 @@ __host__ PipeTensor<T, Dim, InnerContig, IndexT>::PipeTensor(
         stride_[i] = stride_[i + 1] * sizes[i + 1];
     }
     // this->hostdata_ = new T[this->numElements()];
-    this->hostdata_ = (DataPtrType)pc_->allocPinTemp(this->getSizeInBytes());
+    auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
+    this->hostdata_ = (DataPtrType)pc_->allocPinTemp(real_size);
     FAISS_ASSERT(this->hostdata_ != nullptr);
     this->devicedata_ = nullptr;
 }
@@ -217,7 +220,8 @@ __host__ PipeTensor<T, Dim, InnerContig, IndexT>::PipeTensor(
         stride_[j] = stride_[j + 1] * size_[j + 1];
     }
     // this->hostdata_ = new T[this->numElements()];
-    this->hostdata_ = (DataPtrType)pc_->allocPinTemp(this->getSizeInBytes());
+    auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
+    this->hostdata_ = (DataPtrType)pc_->allocPinTemp(real_size);
     FAISS_ASSERT(this->hostdata_ != nullptr);
     this->devicedata_ = nullptr;
 }
@@ -247,7 +251,7 @@ template <
         int Dim,
         bool InnerContig,
         typename IndexT>
-__host__ PipeTensor<T, Dim, InnerContig, IndexT>::PipeTensor(
+__host__ __device__ PipeTensor<T, Dim, InnerContig, IndexT>::PipeTensor(
         DataPtrType data, DataPtrType data2, 
         const IndexT sizes[Dim],
         const IndexT strides[Dim])
@@ -370,7 +374,8 @@ template <
         typename IndexT>
 __host__ void PipeTensor<T, Dim, InnerContig, IndexT>::memh2d(cudaStream_t stream) {
     if (!devicedata_){
-        this->devicedata_ = (DataPtrType)pgr->allocTemMemory(this->getSizeInBytes());
+        auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
+        this->devicedata_ = (DataPtrType)pgr->allocTemMemory(real_size);
         this->state_ = AllocState::BothOwner;
         FAISS_ASSERT(this->devicedata_ != nullptr);
     }
@@ -398,6 +403,22 @@ __host__ void PipeTensor<T, Dim, InnerContig, IndexT>::memd2h(cudaStream_t strea
                 cudaMemcpyDeviceToHost,
                 stream));
 }
+
+template <
+        typename T,
+        int Dim,
+        bool InnerContig,
+        typename IndexT>
+__host__ void PipeTensor<T, Dim, InnerContig, IndexT>::reserve(cudaStream_t stream) {
+    if (!devicedata_){
+        auto real_size = utils::roundUp(this->getSizeInBytes(), (size_t)16);
+        this->devicedata_ = (DataPtrType)pgr->allocTemMemory(real_size);
+        this->state_ = AllocState::BothOwner;
+        FAISS_ASSERT(this->devicedata_ != nullptr);
+    }
+}
+
+
 
 template <
         typename T,
