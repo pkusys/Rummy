@@ -13,7 +13,7 @@
 namespace faiss {
 namespace gpu {
 
-constexpr uint32_t kMaxUInt32 = std::numeric_limits<uint32_t>::max();
+constexpr uint32_t kMaxUInt32 = std::numeric_limits<int32_t>::max();
 
 // Second-pass kernel to further k-select the results from the first pass across
 // IVF lists and produce the final results
@@ -21,14 +21,14 @@ template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void KernelReduce(
         int maxcluster,
         PipeTensor<float, 3, true> best_distances,
-        PipeTensor<size_t, 3, true> best_indices,
+        PipeTensor<int, 3, true> best_indices,
         PipeTensor<int, 2, true> query_bcluster_matrix,
         int k,
         void** listIndices,
         IndicesOptions opt,
         bool dir,
         PipeTensor<float, 2, true> out_distances,
-        PipeTensor<size_t, 2, true> out_indices,
+        PipeTensor<int, 2, true> out_indices,
         int split) {
     int queryId = blockIdx.x;
 
@@ -130,25 +130,25 @@ template <int ThreadsPerBlock, int NumWarpQ, int NumThreadQ>
 __global__ void KernelMerge(
         PipeTensor<int, 1, true> cnt_per_query,
         PipeTensor<float*, 2, true> best_distances,
-        PipeTensor<size_t*, 2, true> best_indices,
+        PipeTensor<int*, 2, true> best_indices,
         int k,
         IndicesOptions opt,
         bool dir,
         PipeTensor<float, 2, true> out_distances,
-        PipeTensor<size_t, 2, true> out_indices) {
+        PipeTensor<int, 2, true> out_indices) {
     int queryId = blockIdx.x;
 
     constexpr int kNumWarps = ThreadsPerBlock / kWarpSize;
 
     __shared__ float smemK[kNumWarps * NumWarpQ];
-    __shared__ size_t smemV[kNumWarps * NumWarpQ];
+    __shared__ int smemV[kNumWarps * NumWarpQ];
 
     // To avoid creating excessive specializations, we combine direction
     // kernels, selecting for the smallest element. If `dir` is true, we negate
     // all values being selected (so that we are selecting the largest element).
     BlockSelect<
             float,
-            size_t,
+            int,
             false,
             Comparator<float>,
             NumWarpQ,
@@ -160,7 +160,7 @@ __global__ void KernelMerge(
     int num = cnt_per_query(queryId) * k;
 
     float** distanceBase = best_distances(queryId).data();
-    size_t** indicesBase = best_indices(queryId).data();
+    int** indicesBase = best_indices(queryId).data();
     int limit = utils::roundDown(num, kWarpSize);
 
     // This will keep our negation factor
@@ -173,7 +173,7 @@ __global__ void KernelMerge(
         int curResult = i / k;
         int curK = i % k;
 
-        size_t index = indicesBase[curResult][curK];
+        int index = indicesBase[curResult][curK];
 
         heap.addThreadQ(distanceBase[curResult][curK] * adj, index);
 
@@ -184,7 +184,7 @@ __global__ void KernelMerge(
     if (i < num) {
         int curResult = i / k;
         int curK = i % k;
-        size_t index = indicesBase[curResult][curK];
+        int index = indicesBase[curResult][curK];
         heap.addThreadQ(distanceBase[curResult][curK] * adj, index);
     }
 
@@ -207,14 +207,14 @@ __global__ void KernelMerge(
 void runKernelReduce(
         int maxcluster,
         PipeTensor<float, 3, true> best_distances,
-        PipeTensor<size_t, 3, true> best_indices,
+        PipeTensor<int, 3, true> best_indices,
         PipeTensor<int, 2, true> query_bcluster_matrix,
         int k,
         void** listIndices,
         IndicesOptions indicesOptions,
         bool dir,
         PipeTensor<float, 2, true> out_distances,
-        PipeTensor<size_t, 2, true> out_indices,
+        PipeTensor<int, 2, true> out_indices,
         cudaStream_t stream,
         int split) {
 #define IVF_REDUCE(THREADS, NUM_WARP_Q, NUM_THREAD_Q)               \
@@ -262,7 +262,7 @@ void runKernelCompute(
     PipeTensor<int, 1, true> queryids,
     PipeTensor<float, 2, true> queries,
     PipeTensor<int, 2, true> query_cluster_matrix,
-    PipeTensor<size_t, 3, true> best_indices,
+    PipeTensor<int, 3, true> best_indices,
     PipeTensor<float, 3, true> best_distances,
     void** deviceListDataPointers_,
     IndicesOptions indicesOptions,
@@ -312,7 +312,7 @@ void runKernelComputeReduce(
     faiss::MetricType metric,
     bool dir,
     PipeTensor<float, 2, true> out_distances,
-    PipeTensor<size_t, 2, true> out_indices,
+    PipeTensor<int, 2, true> out_indices,
     PipeCluster* pc,
     PipeGpuResources* pipe_res,
     int device,
@@ -332,7 +332,7 @@ void runKernelComputeReduce(
     PipeTensor<float, 3, true> best_distances({nquery, maxcluster_per_query, (int)k * split}, pc);
     best_distances.setResources(pc, pipe_res);
     best_distances.reserve();
-    PipeTensor<size_t, 3, true> best_indices({nquery, maxcluster_per_query, (int)k * split}, pc);
+    PipeTensor<int, 3, true> best_indices({nquery, maxcluster_per_query, (int)k * split}, pc);
     best_indices.setResources(pc, pipe_res);
     best_indices.reserve();
 
@@ -380,12 +380,12 @@ void runKernelComputeReduce(
 void runKernelMerge(
     PipeTensor<int, 1, true> cnt_per_query,
     PipeTensor<float*, 2, true> result_distances,
-    PipeTensor<size_t*, 2, true> result_indices,
+    PipeTensor<int*, 2, true> result_indices,
     int k,
     IndicesOptions indicesOptions,
     bool dir,
     PipeTensor<float, 2, true> out_distances,
-    PipeTensor<size_t, 2, true> out_indices,
+    PipeTensor<int, 2, true> out_indices,
     cudaStream_t stream)
     {
 

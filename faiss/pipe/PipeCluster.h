@@ -55,8 +55,8 @@ public:
     // Return if the cluster is on device
     bool readonDevice(int id);
 
-    // Add the Global count by reference number
-    void addGlobalCount(int id, int num);
+    // Add the Global count by reference number (If not in GPU pageid = -1)
+    void addGlobalCount(int id, int pageid, int num);
 
     // Check the Global count by reference number
     int readGlobalCount(int id);
@@ -109,9 +109,6 @@ public: // For convenient, may change the mode to public later
     // Each balanced cluster's storage
     std::vector<float*> Mem;
 
-    // Each balanced cluster's intearleaved code memory size.
-    std::vector<size_t> MemBytes;
-    
     // Each balanced cluster's idx
     std::vector<int*> Balan_ids;
 

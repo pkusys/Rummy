@@ -22,8 +22,8 @@ namespace {
 // Default expected standard variance ratio
 const float StdVarRation = 0.2;
 
-// Default Temp PinMemory Size (should be 64 MiB)
-const int PinTempSize = 256 * 1024 * 1024;
+// Default Temp PinMemory Size (64 MiB)
+const int PinTempSize = 64 * 1024 * 1024;
 
 float StdDev (std::vector<int> vec){
     // Caculate the mean value
@@ -73,7 +73,6 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
     Mem.resize(BCluSize.size());
-    MemBytes.resize(BCluSize.size());
     Balan_ids.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
     DeviceMem.resize(BCluSize.size());
@@ -254,7 +253,6 @@ void PipeCluster::mallocPinnedMem(){
                 }
 
                 Mem[index] = p;
-                MemBytes[index] = bytes;
                 Balan_ids[index] = index_p;
 
                 // ADD the original memory address
@@ -369,9 +367,21 @@ bool PipeCluster::readonDevice(int id){
     return isonDevice[id];
 }
 
-void PipeCluster::addGlobalCount(int id, int num){
+void PipeCluster::addGlobalCount(int id, int page_id, int num){
     // ADD the count
     GlobalCount[id] += num;
+
+    if (page_id != -1){
+        // Sync with LRU tree
+        auto node = LRUtree_->Search(GlobalCount[id] - num, page_id);
+        // Not pinned on device
+        if (node){
+            int newkey = node->key + num;
+            int newval = node->val;
+            LRUtree_->remove(node->key, node->val);
+            LRUtree_->insert(newkey, newval);
+        }
+    }
 }
 
 int PipeCluster::readGlobalCount(int id){

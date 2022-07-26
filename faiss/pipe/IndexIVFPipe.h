@@ -277,10 +277,10 @@ struct IndexIVFPipe: Index {
             const float* x,
             float** coarse_dis,
             int** ori_idx,
-            size_t** bcluster_per_query,
-            size_t *actual_nprobe,
+            int** bcluster_per_query,
+            int* actual_nprobe,
             int** query_bcluster_matrix,
-            size_t* maxbcluster_per_query,
+            int* maxbcluster_per_query,
             int* bcluster_cnt,
             int** bcluster_list,
             int** query_per_bcluster,
@@ -306,14 +306,14 @@ struct IndexIVFPipe: Index {
         return;
     }
     
-    const size_t nprobe = std::min(nlist, this->nprobe);
+    const int nprobe = std::min(nlist, this->nprobe);
     *actual_nprobe = nprobe;
     FAISS_THROW_IF_NOT(nprobe > 0);
 
     *coarse_dis = new float[n * nprobe];
     *ori_idx = new int[n * nprobe];
     idx_t* ori_offset = new idx_t[n * nprobe];
-    *bcluster_per_query = new size_t[n];
+    *bcluster_per_query = new int[n];
 
     // to eliminate the data dependence of the loop from line 348-365, 
     // we allocate 8 buffer to save them saparately.
@@ -352,12 +352,12 @@ struct IndexIVFPipe: Index {
     // scan the coarse_idx matrix to record queries for each cluster,
     // and also record the balanced cluster number for each query.
 #pragma omp parallel for if (nt > 1)
-    for (size_t i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         int thisthread = omp_get_thread_num();
         // if (i == 0)
         //     printf("Omp works well ? : %d\n", omp_in_parallel());
-        size_t offset = 0;
-        for (size_t j = 0; j < nprobe; j++) {
+        int offset = 0;
+        for (int j = 0; j < nprobe; j++) {
             int idx = i * nprobe + j;
             int clus_id = (*ori_idx)[idx];
             int idx2 = omp_get_thread_num() * nlist + clus_id;
@@ -365,7 +365,7 @@ struct IndexIVFPipe: Index {
             clusters_query_matrix[idx3] = i;            
             query_per_cluster[idx2] ++;
             ori_offset[idx] = offset;
-            offset += (size_t)(pipe_cluster->O2Bcnt[clus_id]);                           
+            offset += (int)(pipe_cluster->O2Bcnt[clus_id]);                           
         }
         (*bcluster_per_query)[i] = offset;
     }
@@ -442,7 +442,7 @@ struct IndexIVFPipe: Index {
 
 
     // calculate the size of the query_bcluster_matrix
-    size_t max_bclusters_cnt = 0;
+    int max_bclusters_cnt = 0;
     for (int i = 0; i < n; i++) {
         max_bclusters_cnt = std::max (max_bclusters_cnt, (*bcluster_per_query)[i]);
     }
@@ -457,8 +457,8 @@ struct IndexIVFPipe: Index {
 
     // fill the query_bcluster_matrix
 #pragma omp parallel for if (nt > 1)
-    for (size_t i = 0; i < n; i++) {
-        for (size_t j = 0; j < nprobe; j++) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < nprobe; j++) {
             idx_t offset = ori_offset[i * nprobe + j] ;
             std::vector<int> &bclusters_probe =
                          pipe_cluster->O2Bmap[(*ori_idx)[i * nprobe + j]];

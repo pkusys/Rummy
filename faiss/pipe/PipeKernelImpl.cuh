@@ -21,7 +21,7 @@
             PipeTensor<int, 1, true> queryids,                          \
             PipeTensor<float, 2, true> queries,                         \
             PipeTensor<int, 2, true> query_cluster_matrix,              \
-            PipeTensor<size_t, 3, true> best_indices,                   \
+            PipeTensor<int, 3, true> best_indices,                   \
             PipeTensor<float, 3, true> best_distances,                  \
             void** deviceListDataPointers_,                         \
             IndicesOptions indicesOptions,                          \
@@ -46,7 +46,7 @@
             PipeTensor<int, 1, true> queryids,                           \
             PipeTensor<float, 2, true> queries,                         \
             PipeTensor<int, 2, true> query_cluster_matrix,              \
-            PipeTensor<size_t, 3, true> best_indices,                  \
+            PipeTensor<int, 3, true> best_indices,                  \
             PipeTensor<float, 3, true> best_distances,                 \
             void** deviceListDataPointers_,                         \
             IndicesOptions indicesOptions,                          \

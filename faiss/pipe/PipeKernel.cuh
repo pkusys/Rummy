@@ -46,7 +46,7 @@ __global__ void KernelCompute(
         PipeTensor<int, 1, true> queryids,  
         PipeTensor<float, 2, true> queries,        
         PipeTensor<int, 2, true> query_cluster_matrix,          
-        PipeTensor<size_t, 3, true> best_indices,                  
+        PipeTensor<int, 3, true> best_indices,                  
         PipeTensor<float, 3, true> best_distances,                 
         void** allListData,                     
         int* listLengths,          
@@ -66,7 +66,13 @@ __global__ void KernelCompute(
     int numVecs = listLengths[listId];
     int split = gridDim.z;
     int splitStart = numVecs * splitId / split;
+    splitStart = utils::roundDown(splitStart, 32);
     int splitEnd = numVecs * (splitId + 1) / split;
+    splitEnd = utils::roundDown(splitEnd, 32);
+    if (splitId == split - 1) {
+        splitEnd = numVecs;
+    }
+
     int splitCnt = splitEnd - splitStart;
     
 
@@ -86,7 +92,7 @@ __global__ void KernelCompute(
 
     auto query = queries(queryId).data();
     auto vecsBase = (EncodeT*)allListData[listId];
-    vecsBase = vecsBase + splitStart;
+    vecsBase = vecsBase + splitStart * d;
 
     constexpr auto kInit = Metric::kDirection ? kFloatMin : kFloatMax;
 
@@ -289,7 +295,7 @@ void runKernelCompute(
     PipeTensor<int, 1, true> queryids,
     PipeTensor<float, 2, true> queries,
     PipeTensor<int, 2, true> query_cluster_matrix,
-    PipeTensor<size_t, 3, true> best_indices,
+    PipeTensor<int, 3, true> best_indices,
     PipeTensor<float, 3, true> best_distances,
     void** deviceListDataPointers_,
     IndicesOptions indicesOptions,
@@ -321,14 +327,14 @@ void runKernelCompute(
 void runKernelReduce(
         int maxcluster_cnt,
         PipeTensor<float, 3, true> best_distances,
-        PipeTensor<size_t, 3, true> best_indices,
+        PipeTensor<int, 3, true> best_indices,
         PipeTensor<int, 2, true> query_bcluster_matrix,
         int k,
         void** listIndices,
         IndicesOptions indicesOptions,
         bool dir,
         PipeTensor<float, 2, true> out_distances,
-        PipeTensor<size_t, 2, true> out_indices,
+        PipeTensor<int, 2, true> out_indices,
         cudaStream_t stream,
         int split);
 
@@ -370,7 +376,7 @@ void runKernelComputeReduce(
     faiss::MetricType metric,
     bool dir,
     PipeTensor<float, 2, true> out_distances,
-    PipeTensor<size_t, 2, true> out_indices,
+    PipeTensor<int, 2, true> out_indices,
     PipeCluster* pc,
     PipeGpuResources* pipe_res,
     int device,
@@ -400,12 +406,12 @@ void runKernelComputeReduce(
 void runKernelMerge(
     PipeTensor<int, 1, true> cnt_per_query,
     PipeTensor<float*, 2, true> result_distances,
-    PipeTensor<size_t*, 2, true> result_indices,
+    PipeTensor<int*, 2, true> result_indices,
     int k,
     IndicesOptions indicesOptions,
     bool dir,
     PipeTensor<float, 2, true> out_distances,
-    PipeTensor<size_t, 2, true> out_indices,
+    PipeTensor<int, 2, true> out_indices,
     cudaStream_t stream);
 
 

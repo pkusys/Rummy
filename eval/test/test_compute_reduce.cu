@@ -64,20 +64,20 @@ double t0;
 void search_demo(
             faiss::gpu::StandardGpuResources* res,
             faiss::IndexIVFPipe* index,
-            size_t n,
+            int n,
             const float* x,
-            size_t k,
+            int k,
             float* distances,
-            size_t* labels,
+            int* labels,
             bool display){
                 
             printf("\n entering search_demo\n");
             float* coarse_dis;
             int* ori_idx;
-            size_t* bcluster_per_query;
-            size_t actual_nprobe;
+            int* bcluster_per_query;
+            int actual_nprobe;
             int* query_bcluster_matrix;
-            size_t maxbcluster_per_query;
+            int maxbcluster_per_query;
             int bcluster_cnt;
             int* bcluster_list;
             int* query_per_bcluster;
@@ -102,10 +102,10 @@ void search_demo(
                 printf("[%.3f s] Query results (vector ids, then distances)(only display 10 queries):\n",
                     elapsed() - t0);
 
-                printf("maxbcluster_per_query:%zu, actual_nprobe:%zu\n", maxbcluster_per_query, actual_nprobe);
+                printf("maxbcluster_per_query:%d, actual_nprobe:%d\n", maxbcluster_per_query, actual_nprobe);
             
                 for (int i = 0; i < 10; i++) {
-                    printf("query %2d: width %zu \n", i, bcluster_per_query[i]);
+                    printf("query %2d: width %d \n", i, bcluster_per_query[i]);
                     for(int j = 0; j < actual_nprobe; j++) {
                         printf("%d cluster,dis:%f   ", ori_idx[j + i * actual_nprobe], coarse_dis[j + i * actual_nprobe]);
                     }
@@ -142,7 +142,7 @@ void search_demo(
                 printf("[%.3f s] Query results (only display shape info):\n",
                     elapsed() - t0);
 
-                printf("nquery:%zu,maxbcluster_per_query:%zu, actual_nprobe:%zu\n", n, maxbcluster_per_query, actual_nprobe);
+                printf("nquery:%d,maxbcluster_per_query:%d, actual_nprobe:%d\n", n, maxbcluster_per_query, actual_nprobe);
 
             }
 
@@ -158,24 +158,25 @@ void search_demo(
             for(int i = 0; i < pc->bnlist; i++) {
                 void* dataP;
                 void* IndexP;
-                cudaMalloc(&dataP, pc->MemBytes[i]);
-                cudaMemcpy(dataP, pc->Mem[i], pc->MemBytes[i], cudaMemcpyHostToDevice);
+                int vectorNum = pc->BCluSize[i];
+                vectorNum = (vectorNum + 31) / 32 * 32;
+                int bytes = vectorNum * index->d * sizeof(float);
+                cudaMalloc(&dataP, bytes);
+                cudaMemcpy(dataP, pc->Mem[i], bytes, cudaMemcpyHostToDevice);
                 ListDataP_vec[i] = dataP;
 
                 cudaMalloc(&IndexP, sizeof(int) * pc->BCluSize[i]);
                 cudaMemcpy(IndexP, pc->Balan_ids[i], sizeof(int) * pc->BCluSize[i], cudaMemcpyHostToDevice);
                 ListIndexP_vec[i] = IndexP;
             }
-  
+            
             auto ListLength_vec = pc->BCluSize;
-
             auto res_ = res->getResources().get();
             auto stream = res->getDefaultStream(0);
+            pipe_res->initializeForDevice(0, pc);
             auto d2h_stream = pipe_res->getCopyD2HStream(0);
             auto exe_stream = pipe_res->getExecuteStream(0);
             auto h2d_stream = pipe_res->getCopyH2DStream(0);
-
-
             faiss::gpu::PipeTensor<void*, 1, true> ListDataP_({pc->bnlist}, pc);
             ListDataP_.copyFrom(ListDataP_vec, h2d_stream);
             ListDataP_.setResources(pc, pipe_res);
@@ -218,7 +219,7 @@ void search_demo(
                 faiss::gpu::IPDistance metr;          
                 dir = metr.kDirection;
             }
-
+            printf("1okay\n");
             // The below code will cause pinned memory overflow for the second test.
 
             // First test without spliting.
@@ -248,7 +249,7 @@ void search_demo(
                 out_distances.setResources(pc, pipe_res);
                 out_distances.reserve();
 
-                faiss::gpu::PipeTensor<size_t, 2, true> out_indices({(int)n, (int)k}, pc);
+                faiss::gpu::PipeTensor<int, 2, true> out_indices({(int)n, (int)k}, pc);
                 out_indices.setResources(pc, pipe_res);
                 out_indices.reserve();
 
@@ -299,15 +300,14 @@ void search_demo(
                     cudaStreamSynchronize(d2h_stream);
 
 
-                    if(display) {
-                        for(int q0 = 0; q0 < 10; q0++) {
-                            for(int q1 = 0;q1 < k; q1++) {
-                                float distance = out_distances[q0][q1];
-                                size_t indice = out_indices[q0][q1];
-                                printf("%f,%zu  ", distance , indice);
-                            }
-                            printf("\n");
+                    // display 10 query's results.
+                    for(int q0 = 0; q0 < 10; q0++) {
+                        for(int q1 = 0;q1 < k; q1++) {
+                            float distance = out_distances[q0][q1];
+                            int indice = out_indices[q0][q1];
+                            printf("%f,%d  ", distance , indice);
                         }
+                        printf("\n");
                     }
                 }
             }
@@ -323,7 +323,7 @@ void search_demo(
             printf("[%.3f s]start to test split\n", t1 - t0);
 
             std::vector<float*> result_distances;
-            std::vector<size_t*> result_indices;
+            std::vector<int*> result_indices;
 
             result_distances.resize(n * cluster_split);
             result_indices.resize(n * cluster_split);
@@ -341,9 +341,17 @@ void search_demo(
             query_cluster_matrix_whole.memh2d(h2d_stream);
 
             std::vector<faiss::gpu::PipeTensor<float, 2, true>*> distance_temp_vec;
-            std::vector<faiss::gpu::PipeTensor<size_t, 2, true>*> indice_temp_vec;
+            std::vector<faiss::gpu::PipeTensor<int, 2, true>*> indice_temp_vec;
             distance_temp_vec.resize(query_split * cluster_split);
             indice_temp_vec.resize(query_split * cluster_split);
+
+            faiss::gpu::PipeTensor<float, 2, true> out_distances({(int)n, (int)k}, pc);
+            out_distances.setResources(pc, pipe_res);
+            out_distances.reserve();                
+
+            faiss::gpu::PipeTensor<int, 2, true> out_indices({(int)n, (int)k}, pc);
+            out_indices.setResources(pc, pipe_res);
+            out_indices.reserve();  
 
 
 
@@ -353,9 +361,9 @@ void search_demo(
             queryids_gpu_whole.copyFrom(queryids, h2d_stream);
             queryids_gpu_whole.setResources(pc, pipe_res);
             queryids_gpu_whole.memh2d(h2d_stream);
+            cudaStreamSynchronize(h2d_stream);
 
             for (int i = 0; i < query_split; i++) {
-                printf("the %dth query split\n", i);
                 int query_start = i * n / query_split;
                 int query_end = (i + 1) * n / query_split;
                 int query_cnt = query_end - query_start;
@@ -363,7 +371,8 @@ void search_demo(
                 auto queryids_gpu = queryids_gpu_whole.narrow(0, query_start, query_cnt);
 
                 for (int j = 0; j < cluster_split; j++) {
-                    printf("the %d,%d  query-cluster split\n", i, j);
+                    //printf("the %d,%d  query-cluster split\n", i, j);
+
                     int cluster_start = j * maxbcluster_per_query / cluster_split;
                     int cluster_end = (j + 1) * maxbcluster_per_query / cluster_split;
                     int cluster_cnt = cluster_end - cluster_start;
@@ -372,22 +381,22 @@ void search_demo(
                     auto query_cluster_matrix_gpu_ = query_cluster_matrix_whole.narrow(0, query_start, query_cnt);
                     auto query_cluster_matrix_gpu = query_cluster_matrix_gpu_.narrow(1, cluster_start, cluster_cnt);
 
-                    faiss::gpu::PipeTensor<float, 2, true>* out_distances = new faiss::gpu::PipeTensor<float, 2, true>({query_cnt, (int)k}, pc);
-                    out_distances->setResources(pc, pipe_res);
-                    out_distances->reserve();
+                    faiss::gpu::PipeTensor<float, 2, true>* out_distance = new faiss::gpu::PipeTensor<float, 2, true>({query_cnt, (int)k}, pc);
+                    out_distance->setResources(pc, pipe_res);
+                    out_distance->reserve();
 
-                    faiss::gpu::PipeTensor<size_t, 2, true>* out_indices = new faiss::gpu::PipeTensor<size_t, 2, true>({query_cnt, (int)k}, pc);
-                    out_indices->setResources(pc, pipe_res);
-                    out_indices->reserve();
+                    faiss::gpu::PipeTensor<int, 2, true>* out_indice = new faiss::gpu::PipeTensor<int, 2, true>({query_cnt, (int)k}, pc);
+                    out_indice->setResources(pc, pipe_res);
+                    out_indice->reserve();
 
-                    indice_temp_vec[i * cluster_split + j] = out_indices;
-                    distance_temp_vec[i * cluster_split + j] = out_distances;
+                    indice_temp_vec[i * cluster_split + j] = out_indice;
+                    distance_temp_vec[i * cluster_split + j] = out_distance;
 
 
 
                     for(int q0 = query_start; q0 < query_end; q0++) {
-                        result_distances[q0 * cluster_split + j] = (*out_distances)(q0 - query_start).data();
-                        result_indices[q0 * cluster_split + j] = (*out_indices)(q0 - query_start).data();
+                        result_distances[q0 * cluster_split + j] = (*out_distance)(q0 - query_start).data();
+                        result_indices[q0 * cluster_split + j] = (*out_indice)(q0 - query_start).data();
                     }
 
                     
@@ -407,12 +416,12 @@ void search_demo(
                         ListIndexP,
                         index->metric_type,
                         dir,
-                        *out_distances,
-                        *out_indices,
+                        *out_distance,
+                        *out_indice,
                         pc,
                         pipe_res,
                         0,
-                        2);                    
+                        2);
 
                 }
             }
@@ -430,23 +439,15 @@ void search_demo(
                 cnt_per_query.resize(n);
                 std::fill(cnt_per_query.data(), cnt_per_query.data() + n, 4);
 
-
                 faiss::gpu::PipeTensor<int, 1, true> cnt_per_query_gpu({(int)n}, pc);
                 cnt_per_query_gpu.copyFrom(cnt_per_query, h2d_stream);
                 cnt_per_query_gpu.setResources(pc, pipe_res);
                 cnt_per_query_gpu.memh2d(h2d_stream);
 
 
-                faiss::gpu::PipeTensor<float, 2, true> out_distances({(int)n, (int)k}, pc);
-                out_distances.setResources(pc, pipe_res);
-                out_distances.reserve();                
 
-                faiss::gpu::PipeTensor<size_t, 2, true> out_indices({(int)n, (int)k}, pc);
-                out_indices.setResources(pc, pipe_res);
-                out_indices.reserve();  
-
-
-                faiss::gpu::PipeTensor<size_t*, 2, true> result_indices_gpu({(int)n, cluster_split}, pc);
+            
+                faiss::gpu::PipeTensor<int*, 2, true> result_indices_gpu({(int)n, cluster_split}, pc);
                 result_indices_gpu.copyFrom(result_indices, h2d_stream);
                 result_indices_gpu.setResources(pc, pipe_res);
                 result_indices_gpu.memh2d(h2d_stream);
@@ -459,9 +460,8 @@ void search_demo(
 
                 cudaStreamSynchronize(h2d_stream);
 
-                printf("lalababa\n");
 
-                runKernelMerge(
+                faiss::gpu::runKernelMerge(
                     cnt_per_query_gpu,
                     result_distances_gpu,
                     result_indices_gpu,
@@ -485,15 +485,14 @@ void search_demo(
                 out_indices.memd2h(d2h_stream);
                 cudaStreamSynchronize(d2h_stream);
 
-                if(display) {
-                    for(int q0 = 0; q0 < 10; q0++) {
-                        for(int q1 = 0;q1 < k; q1++) {
-                            float distance = out_distances[q0][q1];
-                            size_t indice = out_indices[q0][q1];
-                            printf("%f,%zu  ", distance, indice);
-                        }
-                        printf("\n");
+                // display 10 query's results.
+                for(int q0 = 0; q0 < 10; q0++) {
+                    for(int q1 = 0;q1 < k; q1++) {
+                        float distance = out_distances[q0][q1];
+                        int indice = out_indices[q0][q1];
+                        printf("%f,%d  ", distance, indice);
                     }
+                    printf("\n");
                 }
 
             }
@@ -508,7 +507,7 @@ void search_demo(
 
             printf("{FINISHED IN ACCUMULATE TIME %f ms}\n", accumulated * 1000);
 
-            printf("test origional\n");
+            printf("\ntest origional\n");
 
             faiss::gpu::DeviceTensor<float, 2, true> queries_gpu_device = \
                             faiss::gpu::toDeviceTemporary<float, 2>(res_, 0, (float*)x, stream, {(int)n, index->d});
@@ -585,6 +584,48 @@ void search_demo(
             free(bcluster_list);
             free(query_per_bcluster);
             free(bcluster_query_matrix);
+
+            auto hostDistance = faiss::gpu::toHost<float, 2>(outDistances.data(), res_->getDefaultStream(index->ivfPipeConfig_.device),
+                {(int)n, (int)k});
+            
+            auto hostIndice = faiss::gpu::toHost<faiss::Index::idx_t, 2>(outIndices.data(), res_->getDefaultStream(index->ivfPipeConfig_.device),
+                {(int)n, (int)k});
+            
+            bool correctness = true;
+            
+            // display 10 query's results.
+            for(int q0 = 0; q0 < 10; q0++) {
+                for(int q1 = 0;q1 < k; q1++) {
+                    float distance = hostDistance[q0][q1];
+                    int indice = hostIndice[q0][q1];
+                    printf("%f,%d  ", distance, indice);                        
+                }
+                printf("\n");
+            }
+
+            
+            for(int q0 = 0; q0 < n; q0++) {
+                int subco = 0;
+                for(int q1 = 0;q1 < k; q1++) {
+                    float distance = hostDistance[q0][q1];
+                    int indice = hostIndice[q0][q1];
+                    if (out_distances[q0][q1] != distance || out_indices[q0][q1] != indice) {
+                        correctness = false;
+                        subco += 1;
+                    }
+                }
+                if(subco != 0) {
+                    printf("wrong at query %d,wrongcnt %d;  ", q0, subco);
+                }
+            }
+            
+            if (!correctness) {
+                printf("wrong!!!\n");
+            }
+            else {
+                printf("right\n");
+            }
+            
             
     }
 
@@ -713,7 +754,7 @@ int main() {
     // display results:searching the database
     {
         float distances[20][5];
-        size_t labels[20][5];
+        int labels[20][5];
 
         index->set_nprobe(5);
         search_demo(resources, index, 20, queries.data(), 5, distances[0], labels[0], true);
@@ -722,10 +763,10 @@ int main() {
     // display performance: searching the database
     {
         float distances[512][5];
-        size_t labels[512][5];
+        int labels[512][5];
 
         index->set_nprobe(512);
-        search_demo(resources, index, 512, queries.data(), 5, distances[0], labels[0], false);
+        search_demo(resources, index, 256, queries.data(), 5, distances[0], labels[0], false);
     }
 
 

@@ -249,6 +249,9 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
         return;
     }
     pc_ = pc;
+
+    // Set the page size to the number of bytes of a balanced cluster
+    setPageSize(pc->bcs * pc->d * sizeof(float));
     
     // switch to the "device"
     FAISS_ASSERT(device < getNumDevices());
@@ -334,6 +337,7 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
 
     // Initialize the pageinfo
     size_t pageNum = MaxDeviceSize_ / pageSize_;
+    pageNum_ = pageNum;
     // std::cout << "Device Memory layout (page number):" << pageNum << "\n";
     pageinfo.resize(pageNum);
 
@@ -455,6 +459,25 @@ void PipeGpuResources::deallocMemory(int sta, int num){
     //     pc_->setPinnedonDevice(i, false);
     //     pageinfo[i] = -1;
     // }
+}
+
+void* PipeGpuResources::getPageAddress(int pageid){
+    FAISS_ASSERT(pageid >=0 && pageid < pageNum_);
+
+    // Return a pointer
+    return (void*)(p_ + pageSize_);
+}
+
+void PipeGpuResources::memcpyh2d(int pageid){
+    float *target = (float*)getPageAddress(pageid);
+
+    int cluid = pageinfo[pageid];
+    FAISS_ASSERT(cluid >= 0);
+    size_t bytes = pc_->BCluSize[cluid];
+
+    // This is a sync version copy for profiler
+    cudaMemcpy((void*)target , pc_->Mem[cluid], 
+            bytes, cudaMemcpyHostToDevice);
 }
 
 //
