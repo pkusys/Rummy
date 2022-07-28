@@ -62,6 +62,7 @@ double elapsed() {
 double t0;
 
 void search_demo(
+            faiss::gpu::PipeGpuResources* pipe_res,
             faiss::gpu::StandardGpuResources* res,
             faiss::IndexIVFPipe* index,
             int n,
@@ -84,7 +85,7 @@ void search_demo(
             int maxquery_per_bcluster;
             int* bcluster_query_matrix;
 
-            faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
+
 
             double t1 = elapsed();
 
@@ -173,7 +174,7 @@ void search_demo(
             auto ListLength_vec = pc->BCluSize;
             auto res_ = res->getResources().get();
             auto stream = res->getDefaultStream(0);
-            pipe_res->initializeForDevice(0, pc);
+            
             auto d2h_stream = pipe_res->getCopyD2HStream(0);
             auto exe_stream = pipe_res->getExecuteStream(0);
             auto h2d_stream = pipe_res->getCopyH2DStream(0);
@@ -301,14 +302,17 @@ void search_demo(
 
 
                     // display 10 query's results.
-                    for(int q0 = 0; q0 < 10; q0++) {
-                        for(int q1 = 0;q1 < k; q1++) {
-                            float distance = out_distances[q0][q1];
-                            int indice = out_indices[q0][q1];
-                            printf("%f,%d  ", distance , indice);
+                    if (display) {
+                        for(int q0 = 0; q0 < 10; q0++) {
+                            for(int q1 = 0;q1 < k; q1++) {
+                                float distance = out_distances[q0][q1];
+                                int indice = out_indices[q0][q1];
+                                printf("%f,%d  ", distance , indice);
+                            }
+                            printf("\n");
                         }
-                        printf("\n");
                     }
+                    
                 }
             }
 
@@ -485,15 +489,18 @@ void search_demo(
                 out_indices.memd2h(d2h_stream);
                 cudaStreamSynchronize(d2h_stream);
 
-                // display 10 query's results.
-                for(int q0 = 0; q0 < 10; q0++) {
-                    for(int q1 = 0;q1 < k; q1++) {
-                        float distance = out_distances[q0][q1];
-                        int indice = out_indices[q0][q1];
-                        printf("%f,%d  ", distance, indice);
+                if (display) {
+                    // display 10 query's results.
+                    for(int q0 = 0; q0 < 10; q0++) {
+                        for(int q1 = 0;q1 < k; q1++) {
+                            float distance = out_distances[q0][q1];
+                            int indice = out_indices[q0][q1];
+                            printf("%f,%d  ", distance, indice);
+                        }
+                        printf("\n");
                     }
-                    printf("\n");
                 }
+                
 
             }
 
@@ -594,14 +601,17 @@ void search_demo(
             bool correctness = true;
             
             // display 10 query's results.
-            for(int q0 = 0; q0 < 10; q0++) {
-                for(int q1 = 0;q1 < k; q1++) {
-                    float distance = hostDistance[q0][q1];
-                    int indice = hostIndice[q0][q1];
-                    printf("%f,%d  ", distance, indice);                        
+            if(display) {
+                for(int q0 = 0; q0 < 10; q0++) {
+                    for(int q1 = 0;q1 < k; q1++) {
+                        float distance = hostDistance[q0][q1];
+                        int indice = hostIndice[q0][q1];
+                        printf("%f,%d  ", distance, indice);                        
+                    }
+                    printf("\n");
                 }
-                printf("\n");
             }
+            
 
             
             for(int q0 = 0; q0 < n; q0++) {
@@ -751,22 +761,26 @@ int main() {
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
    
+    auto pc = index->pipe_cluster;
+
+    faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
+    pipe_res->initializeForDevice(0, pc);
+
     // display results:searching the database
     {
-        float distances[20][5];
-        int labels[20][5];
+        float distances[20][80];
+        int labels[20][80];
 
         index->set_nprobe(5);
-        search_demo(resources, index, 20, queries.data(), 5, distances[0], labels[0], true);
+        search_demo(pipe_res, resources, index, 20, queries.data(), 40, distances[0], labels[0], false);
     }
-    
     // display performance: searching the database
     {
-        float distances[512][5];
-        int labels[512][5];
+        float distances[512][10];
+        int labels[512][10];
 
         index->set_nprobe(512);
-        search_demo(resources, index, 256, queries.data(), 5, distances[0], labels[0], false);
+        search_demo(pipe_res, resources, index, 128, queries.data(), 10, distances[0], labels[0], false);
     }
 
 

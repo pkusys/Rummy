@@ -25,7 +25,7 @@ class PipeCluster {
 public:
 
     // Construct the cluster info
-    PipeCluster(int nlist, int d, std::vector<int> & sizes, 
+    PipeCluster(int nlist, int d, std::vector<int> & sizes,
             std::vector<float *> & pointers, std::vector<int*> & indexes, bool interleaved_);
 
     ~PipeCluster();
