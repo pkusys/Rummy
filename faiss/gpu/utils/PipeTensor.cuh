@@ -44,10 +44,14 @@ class PipeSubTensor;
 namespace traits {
 
 template <typename T>
+struct PipeRestrictPtrTraits {
+    typedef T* __restrict__ PtrType;
+};
+
+template <typename T>
 struct PipeDefaultPtrTraits {
     typedef T* PtrType;
 };
-
 }
 
 /**
@@ -77,7 +81,7 @@ public:
     typedef T DataType;
     typedef IndexT IndexType;
     enum { IsInnerContig = InnerContig };
-    typedef typename traits::DefaultPtrTraits<T>::PtrType DataPtrType;
+    typedef typename traits::PipeDefaultPtrTraits<T>::PtrType DataPtrType;
     typedef PipeTensor<T, Dim, InnerContig, IndexT> PipeTensorType;
 
     /// Set the two resources

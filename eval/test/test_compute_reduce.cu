@@ -632,6 +632,8 @@ void search_demo(
 
 
 int main() {
+    // Set the max threads num as 8
+    omp_set_num_threads(8);
     //
     t0 = elapsed();
     double t1 = 0.0;

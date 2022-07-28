@@ -86,6 +86,7 @@ set(FAISS_SRC
   pipe/SmallGpuIndex.cu
   pipe/SmallGpuIndexFlat.cu
   pipe/PipeKernel.cu
+  pipe/PipeScheduler.cu
 )
 
 set(FAISS_HEADERS
@@ -186,6 +187,7 @@ set(FAISS_HEADERS
   pipe/SmallGpuIndexFlat.h
   pipe/PipeKernel.cuh
   pipe/PipeKernelImpl.cuh
+  pipe/PipeScheduler.h
 )
 
 if(NOT WIN32)
