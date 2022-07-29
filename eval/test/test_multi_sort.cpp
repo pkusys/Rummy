@@ -28,8 +28,11 @@ int main(){
     omp_set_num_threads(8);
 
     using pi = std::pair<int,int>;
+    auto tt0 = elapsed();
     // std::vector<int> db(1024*16);
     std::vector<pi> db(1024 * 4);
+    auto tt1 = elapsed();
+    printf("Alloc time: %.3f ms\n", (tt1 - tt0) * 1000);
 
     // Randomly init
     std::mt19937 rng;
@@ -37,7 +40,7 @@ int main(){
     for (int i = 0; i < db.size(); i++) {
         int con = int(distrib(rng) * 1000);
         db[i].first = con;
-        db[i].second = con;
+        db[i].second = i;
     }
     // printf("%d\n", faiss::check_openmp());
 #pragma omp parallel for
@@ -49,12 +52,16 @@ int main(){
     auto vec = db;
 
     double t0 = elapsed();
-    // std::sort(db.begin(), db.end(), faiss::Com<int,int>);
-    faiss::multi_sort<int, int> (db.data(), db.size());
+    std::sort(db.begin(), db.end(), faiss::Com<int,int>);
+    // faiss::multi_sort<int, int> (db.data(), db.size());
     double t1 = elapsed();
     printf("Sort Time: %.3f ms\n", (t1 - t0) * 1000);
 
     std::sort(vec.begin(), vec.end(), faiss::Com<int,int>);
+
+    for (int i = 0; i < 20; i++){
+        printf("%d %d\n", db[i].second, db[i].first);
+    }
 
     for (int i = 0; i < db.size(); i++){
         FAISS_ASSERT(vec[i].first == db[i].first);

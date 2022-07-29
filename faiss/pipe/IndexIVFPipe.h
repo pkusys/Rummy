@@ -354,8 +354,8 @@ struct IndexIVFPipe: Index {
 #pragma omp parallel for if (nt > 1)
     for (int i = 0; i < n; i++) {
         int thisthread = omp_get_thread_num();
-        // if (i == 0)
-        //     printf("Omp works well ? : %d\n", omp_in_parallel());
+        if (i == 0)
+            printf("Omp works well ? : %d\n", omp_in_parallel());
         int offset = 0;
         for (int j = 0; j < nprobe; j++) {
             int idx = i * nprobe + j;

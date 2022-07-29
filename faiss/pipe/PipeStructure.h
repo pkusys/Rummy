@@ -657,8 +657,8 @@ void PipeAVLTree<K, V>::print()
 /// Comparison function for Multi-Thread Sort
 template <class K, class V>
 bool Com(std::pair<K,V> a, std::pair<K,V> b){
-    // In Ascending order
-    return a.first < b.second;
+    // In descending order
+    return a.first > b.first;
 }
 
 /// Merge Operation (Ascending order)
@@ -700,6 +700,8 @@ void multi_sort(std::pair<K,V>* p, int size){
 
 #pragma omp parallel for
     for (int i = 0; i < nt; i++){
+        if (i == 0)
+            printf("Omp works well ? : %d\n", omp_in_parallel());
         int start = i * slice;
         int end = std::min(start + slice, size);
         std::sort(p + start, p + end, Com<K, V>);
