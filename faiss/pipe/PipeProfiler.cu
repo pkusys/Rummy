@@ -23,6 +23,8 @@ namespace gpu{
 void PipeProfiler::TranProfiler::train(){
     // param space
     int end = p->pgr_->pageNum_;
+    end = std::min(end, p->pc_->bnlist);
+    //printf("end:%d\n", end);
     int i = 1;
 
     std::vector<int> pages;
@@ -41,7 +43,7 @@ void PipeProfiler::TranProfiler::train(){
         // radomly set allocated pages to clusters
         // and free these pages
         for (int j = 0; j < mb.pages.size(); j++){
-            int clus = j % p->pc_->bnlist;
+            int clus = j;
             p->pgr_->pageinfo[mb.pages[j]] = clus;
             p->pc_->setonDevice(clus, mb.pages[j], true);
 
@@ -56,7 +58,7 @@ void PipeProfiler::TranProfiler::train(){
         
         // Free these pages
         for (int j = 0; j < mb.pages.size(); j++){
-            int clus = j % p->pc_->bnlist;
+            int clus = j;
             p->pgr_->pageinfo[mb.pages[j]] = -1;
             p->pc_->setonDevice(clus, mb.pages[j], false);
             p->pgr_->freetree_->insert(mb.pages[j], mb.pages[j]);
@@ -242,9 +244,7 @@ void PipeProfiler::ComProfiler::train(){
             double tCnt = t1 - t0;
             computeTimeDict[key] = tCnt;
             clus *= 2 ;
-            if(verbose){
-                printf("dataCnt:%d, split:%d. Result:%lf\n", dataCnt, split, tCnt);
-            }   
+            //printf("dataCnt:%d, split:%d. Result:%lf\n", dataCnt, split, tCnt);
         }
 
         
