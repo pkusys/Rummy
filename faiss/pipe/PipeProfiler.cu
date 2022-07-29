@@ -14,7 +14,7 @@
 double timepoint() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return tv.tv_sec + tv.tv_usec * 1e-3;
+    return tv.tv_sec * 1e3 + tv.tv_usec * 1e-3;
 }
 
 namespace faiss{

@@ -779,4 +779,90 @@ void IndexIVFPipe::set_nprobe(size_t nprobe_) {
 }
 
 
+
+
+void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, int* clusIds, int** queryIds) {
+
+
+    int oriClus = *clus;
+    int oriQuery = *query;
+    int afterClus = 0;
+    int afterQuery = 0;
+
+    int* clusPerQuery = new int[queryMax];
+    *queryIds = new int[queryMax];
+
+    std::fill(clusPerQuery, clusPerQuery + queryMax, 0);
+    std::vector<std::vector<int>> queryClus;
+    queryClus.resize(queryMax);
+
+#pragma omp parallel
+{
+
+    int* clusPerQuerySlave = new int[queryMax];
+    std::fill(clusPerQuerySlave, clusPerQuerySlave + queryMax, 0);
+
+    std::vector<std::vector<int>> queryClusMatSlave;
+    queryClusMatSlave.resize(queryMax);
+    for (int i = 0; i < queryMax; i++) {
+        queryClusMatSlave[i].resize(clusMax);
+    }
+
+    #pragma omp for nowait
+    for (int i = 0; i < oriClus; i++) {
+        int clus = clusIds[i];
+
+        for (int j = 0; j < oriQuery; j++) {
+            int query = clusQueryMat[oriQuery * i + j];
+            if (query == -1) {
+                continue;
+            }
+            queryClusMatSlave[query][clusPerQuerySlave[query]] = clus;
+            clusPerQuerySlave[query] += 1;
+        }
+
+    }
+
+    #pragma omp critical
+    {
+
+        for(int i = 0; i < queryMax; i++) {
+            queryClus[i].insert(queryClus[i].end(), std::make_move_iterator(queryClusMatSlave[i].begin()), std::make_move_iterator(queryClusMatSlave[i].begin() + clusPerQuerySlave[i]));
+        }
+    }
+
+}
+
+
+    for (int i = 0; i < queryMax; i++){
+        clusPerQuery[i] = queryClus[i].size();
+        afterClus = std::max(afterClus, clusPerQuery[i]);
+        if (clusPerQuery[i] != 0) {
+            (*queryIds)[afterQuery] = i;
+            afterQuery ++;
+        }
+    }
+
+
+    *queryClusMat = new int[afterQuery * afterClus];
+
+    #pragma omp parallel for
+    for (int i = 0; i < afterQuery ; i++) {
+        memcpy(*queryClusMat + afterClus * i, queryClus[i].data(), sizeof(int) * clusPerQuery[i]);
+        std::fill(*queryClusMat + afterClus * i + clusPerQuery[i], *queryClusMat + afterClus * (i + 1), -1);
+    }
+
+
+    *clus = afterClus;
+    *query = afterQuery;
+    return;
+
+}
+
+
+
+
+
+
+
 }
