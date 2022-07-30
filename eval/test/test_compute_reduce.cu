@@ -61,6 +61,71 @@ double elapsed() {
 
 double t0;
 
+
+void test_transpose(){
+
+    // check correctness
+
+    int clus = 100;
+    int query = 10;
+    int clusMax = 100;
+    int queryMax = 100;
+
+    int* clusQueryMat = new int[clus * query];
+    for(int i = 0; i < clus; i++){
+        for (int j = 0; j < query; j++){
+            clusQueryMat[i * query + j] = (i + j) % queryMax;
+        }
+    }
+
+    int* queryClusMat;
+    int* queryIds;
+    int* clusIds = new int[10000];
+    for (int i = 0; i < 10000; i++){
+        clusIds[i] = i;
+    }
+
+
+    faiss::transpose(clusQueryMat, &queryClusMat, &clus, &query, queryMax, clusMax, clusIds, &queryIds);
+
+    printf("correctness check: query:%d, clus:%d\n", query, clus);
+    for(int i = 0; i < query; i++) {
+        for (int j = 0 ; j < clus; j++){
+            printf("%d ", queryClusMat[i * clus + j]);
+        }
+        printf("\n");
+    }
+
+    
+
+    
+    // check performance
+
+    clus = 10000;
+    query = 500;
+    clusMax = 10000;
+    queryMax = 1000;
+
+    delete[] clusQueryMat;
+
+    clusQueryMat = new int[clus * query];
+    for(int i = 0; i < clus; i++){
+        for (int j = 0; j < query; j++){
+            clusQueryMat[i * query + j] = (i + j) % queryMax;
+        }
+    }
+
+    t0 = elapsed();
+
+    faiss::transpose(clusQueryMat, &queryClusMat, &clus, &query, queryMax, clusMax, clusIds, &queryIds);
+
+    double t1 = elapsed();
+
+    printf("transpose finish in time: %.3f ms\n", (t1 - t0) * 1000);
+    return;
+
+}
+
 void search_demo(
             faiss::gpu::PipeGpuResources* pipe_res,
             faiss::gpu::StandardGpuResources* res,
@@ -72,7 +137,7 @@ void search_demo(
             int* labels,
             bool display){
                 
-            printf("\n entering search_demo\n");
+            printf("[%.3f s] Sample list starts.\n", elapsed() - t0);
             float* coarse_dis;
             int* ori_idx;
             int* bcluster_per_query;
@@ -90,7 +155,7 @@ void search_demo(
             double t1 = elapsed();
 
             // sample_list() test
-            //NOTE: omp is not enabled as this is a .cu file
+
             index->sample_list(n, x, &coarse_dis, &ori_idx,\
                     &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
@@ -140,7 +205,7 @@ void search_demo(
                 }
             }
             else{
-                printf("[%.3f s] Query results (only display shape info):\n",
+                printf("[%.3f s] Sample list result shape:\n",
                     elapsed() - t0);
 
                 printf("nquery:%d,maxbcluster_per_query:%d, actual_nprobe:%d\n", n, maxbcluster_per_query, actual_nprobe);
@@ -646,7 +711,15 @@ int main() {
     omp_set_num_threads(8);
     //
     t0 = elapsed();
-    double t1 = 0.0;
+
+
+
+    // test transpose
+    double t1 = elapsed();
+    printf("[%.3f s] transpose testing\n",
+               t1 - t0);
+    test_transpose();
+
 
     // dimension of the vectors to index
     int d = 128;

@@ -778,11 +778,7 @@ void IndexIVFPipe::set_nprobe(size_t nprobe_) {
     nprobe = nprobe_;
 }
 
-
-
-
 void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, int* clusIds, int** queryIds) {
-
 
     int oriClus = *clus;
     int oriQuery = *query;
@@ -796,46 +792,43 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     std::vector<std::vector<int>> queryClus;
     queryClus.resize(queryMax);
 
-#pragma omp parallel
-{
+    omp_set_num_threads(8);
+    int nt = omp_get_max_threads();
 
-    int* clusPerQuerySlave = new int[queryMax];
-    std::fill(clusPerQuerySlave, clusPerQuerySlave + queryMax, 0);
+    int** clusPerQuerySlave = new int*[nt];
+    int** SlaveOffset = new int*[nt];
+    int** queryClusMatSlave = new int*[nt];
 
-    std::vector<std::vector<int>> queryClusMatSlave;
-    queryClusMatSlave.resize(queryMax);
-    for (int i = 0; i < queryMax; i++) {
-        queryClusMatSlave[i].resize(clusMax);
+    #pragma omp parallel for
+    for (int i = 0; i < nt; i++){
+        clusPerQuerySlave[i] = new int[queryMax];
+        queryClusMatSlave[i] = new int[queryMax * clusMax];
+        SlaveOffset[i] = new int[queryMax];
+        std::fill(clusPerQuerySlave[i], clusPerQuerySlave[i] + queryMax, 0);
     }
 
-    #pragma omp for nowait
-    for (int i = 0; i < oriClus; i++) {
-        int clus = clusIds[i];
 
+
+    #pragma omp parallel for
+    for (int i = 0; i < oriClus; i++) {
+        int rank = omp_get_thread_num();
+        int clus = clusIds[i];
         for (int j = 0; j < oriQuery; j++) {
             int query = clusQueryMat[oriQuery * i + j];
             if (query == -1) {
                 continue;
             }
-            queryClusMatSlave[query][clusPerQuerySlave[query]] = clus;
-            clusPerQuerySlave[query] += 1;
+            queryClusMatSlave[rank][query * clusMax + clusPerQuerySlave[rank][query]] = clus;
+            clusPerQuerySlave[rank][query] += 1;
         }
 
     }
 
-    #pragma omp critical
-    {
-
-        for(int i = 0; i < queryMax; i++) {
-            queryClus[i].insert(queryClus[i].end(), std::make_move_iterator(queryClusMatSlave[i].begin()), std::make_move_iterator(queryClusMatSlave[i].begin() + clusPerQuerySlave[i]));
+    for(int i = 0; i < queryMax; i++) {
+        for (int j = 0; j < nt; j++) {
+            SlaveOffset[j][i] = clusPerQuery[i];
+            clusPerQuery[i] += clusPerQuerySlave[j][i];
         }
-    }
-
-}
-
-
-    for (int i = 0; i < queryMax; i++){
-        clusPerQuery[i] = queryClus[i].size();
         afterClus = std::max(afterClus, clusPerQuery[i]);
         if (clusPerQuery[i] != 0) {
             (*queryIds)[afterQuery] = i;
@@ -843,13 +836,15 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
         }
     }
 
-
     *queryClusMat = new int[afterQuery * afterClus];
 
     #pragma omp parallel for
     for (int i = 0; i < afterQuery ; i++) {
-        memcpy(*queryClusMat + afterClus * i, queryClus[i].data(), sizeof(int) * clusPerQuery[i]);
-        std::fill(*queryClusMat + afterClus * i + clusPerQuery[i], *queryClusMat + afterClus * (i + 1), -1);
+        int queryId = (*queryIds)[i];
+        for (int j = 0; j < nt ; j++) {
+            memcpy (*queryClusMat + afterClus * i + SlaveOffset[j][queryId], queryClusMatSlave[j] + queryId * clusMax, clusPerQuerySlave[j][queryId] * sizeof(int));
+        }
+        std::fill(*queryClusMat + afterClus * i + clusPerQuery[queryId], *queryClusMat + afterClus * (i + 1), -1);
     }
 
 
@@ -858,9 +853,6 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     return;
 
 }
-
-
-
 
 
 

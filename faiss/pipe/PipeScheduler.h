@@ -34,6 +34,7 @@ public:
     // Reorder the clusters to minimize the pipeline overhead
     void reorder();
 
+
 public:
 
     // the corresponding pipecluster

@@ -19,7 +19,7 @@
 double elapsed() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return tv.tv_sec + tv.tv_usec * 1e-3;
+    return tv.tv_sec * 1e3 + tv.tv_usec * 1e-3;
 }
 
 // for (int i = 0; i < 8; i++) 
@@ -30,11 +30,11 @@ int main(){
     // Set the max threads num as 8
     omp_set_num_threads(8);
 
-// #pragma omp parallel for
-//     for (int i = 0; i < 8; i++){
-//         if (i==1)
-//             printf("omp is %d\n", omp_in_parallel());
-//     }
+ #pragma omp parallel for
+     for (int i = 0; i < 8; i++){
+         if (i==1)
+             printf("omp is %d\n", omp_in_parallel());
+     }
 
     // test reorder
     int cnt = 1024 * 4;

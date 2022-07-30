@@ -34,5 +34,5 @@ target_link_libraries(test_profile PRIVATE faiss)
 add_executable(test_pipeline EXCLUDE_FROM_ALL test_pipeline.cu)
 target_link_libraries(test_pipeline PRIVATE faiss)
 
-add_executable(test_multi EXCLUDE_FROM_ALL test_multi_sort.cu)
+add_executable(test_multi EXCLUDE_FROM_ALL test_multi_sort.cpp)
 target_link_libraries(test_multi PRIVATE faiss)
