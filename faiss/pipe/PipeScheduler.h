@@ -23,6 +23,19 @@ namespace gpu{
 
 // The class reorders the computation and divides the pipeline groups
 class PipeScheduler{
+protected:
+    struct pipelinegroup{
+        // Group slice
+        std::vector<int> content;
+
+        // Time (ms)
+        float time = 1e9;
+
+        float delay = 1e9;
+
+        float pre = 1e9;
+    };
+
 public:
     // construct function
     PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
@@ -33,6 +46,16 @@ public:
 
     // Reorder the clusters to minimize the pipeline overhead
     void reorder();
+
+    // Optimal query-aware Grouping
+    void group();
+
+    pipelinegroup group(int staclu, float total, float delay, int depth);
+
+    // Mesure the tran and com time for the number of clusters (ms)
+    float measure_tran(int num);
+
+    float measure_com(int sta, int end);
 
 public:
 
@@ -61,14 +84,22 @@ public:
     // padding with -1
     int* bcluster_query_matrix;
 
-    // the group number
-    int num_group;
-
     // reorder cluster list
     std::vector<int> reorder_list;
 
+    // the size of the clusters already on gpu
+    int part_size;
+
     // reverse map of bcluster_list
     std::unordered_map<int, bool> reversemap;
+
+    // the group number
+    int num_group;
+
+    int max_size;
+
+    // result of group algorithm
+    std::vector<int> groups;
 
 };
 

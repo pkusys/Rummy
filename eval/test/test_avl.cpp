@@ -35,13 +35,6 @@ int main(){
     t1 = elapsed();
     printf("Insert Time: %f ms\n", (t1 - t0)*1000);
 
-    t0 = elapsed();
-    for(int i = 0; i < 1024*16; i++){
-        std::pair<int, int> m = tree->minimum();
-        tree->remove(m.first, m.second);
-    }
-    t1 = elapsed();
-    printf("Remove Time: %f ms\n", (t1 - t0)*1000);
     // auto t0 = elapsed();
     // int size = 30 * 1000 * 1000;
     // int64_t *a = new int64_t[size];
