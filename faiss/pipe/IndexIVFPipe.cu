@@ -34,7 +34,17 @@
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/pipe/PipeKernel.cuh>
 
+// For benchmark
+
+
+
 namespace faiss {
+
+static double timepoint() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
 
 /*****************************************
  * IndexIVFPipe implementation
@@ -778,80 +788,27 @@ void IndexIVFPipe::set_nprobe(size_t nprobe_) {
     nprobe = nprobe_;
 }
 
-void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, int* clusIds, int** queryIds) {
+void IndexIVFPipe::profile() {
+    double t0 = timepoint();
+    if(verbose)
+        printf("start profile\n");
 
-    int oriClus = *clus;
-    int oriQuery = *query;
-    int afterClus = 0;
-    int afterQuery = 0;
+    profiler = new gpu::PipeProfiler(this);
 
-    int* clusPerQuery = new int[queryMax];
-    *queryIds = new int[queryMax];
+    profiler-> train();
 
-    std::fill(clusPerQuery, clusPerQuery + queryMax, 0);
-    std::vector<std::vector<int>> queryClus;
-    queryClus.resize(queryMax);
+    double t1 = timepoint();
+    if(verbose)
+        printf("{FINISHED in %.3f s}\n", t1 - t0);
 
-    omp_set_num_threads(8);
-    int nt = omp_get_max_threads();
+}
 
-    int** clusPerQuerySlave = new int*[nt];
-    int** SlaveOffset = new int*[nt];
-    int** queryClusMatSlave = new int*[nt];
+void IndexIVFPipe::saveProfile(char* path){
+    profiler->save(path);
+}
 
-    #pragma omp parallel for
-    for (int i = 0; i < nt; i++){
-        clusPerQuerySlave[i] = new int[queryMax];
-        queryClusMatSlave[i] = new int[queryMax * clusMax];
-        SlaveOffset[i] = new int[queryMax];
-        std::fill(clusPerQuerySlave[i], clusPerQuerySlave[i] + queryMax, 0);
-    }
-
-
-
-    #pragma omp parallel for
-    for (int i = 0; i < oriClus; i++) {
-        int rank = omp_get_thread_num();
-        int clus = clusIds[i];
-        for (int j = 0; j < oriQuery; j++) {
-            int query = clusQueryMat[oriQuery * i + j];
-            if (query == -1) {
-                continue;
-            }
-            queryClusMatSlave[rank][query * clusMax + clusPerQuerySlave[rank][query]] = clus;
-            clusPerQuerySlave[rank][query] += 1;
-        }
-
-    }
-
-    for(int i = 0; i < queryMax; i++) {
-        for (int j = 0; j < nt; j++) {
-            SlaveOffset[j][i] = clusPerQuery[i];
-            clusPerQuery[i] += clusPerQuerySlave[j][i];
-        }
-        afterClus = std::max(afterClus, clusPerQuery[i]);
-        if (clusPerQuery[i] != 0) {
-            (*queryIds)[afterQuery] = i;
-            afterQuery ++;
-        }
-    }
-
-    *queryClusMat = new int[afterQuery * afterClus];
-
-    #pragma omp parallel for
-    for (int i = 0; i < afterQuery ; i++) {
-        int queryId = (*queryIds)[i];
-        for (int j = 0; j < nt ; j++) {
-            memcpy (*queryClusMat + afterClus * i + SlaveOffset[j][queryId], queryClusMatSlave[j] + queryId * clusMax, clusPerQuerySlave[j][queryId] * sizeof(int));
-        }
-        std::fill(*queryClusMat + afterClus * i + clusPerQuery[queryId], *queryClusMat + afterClus * (i + 1), -1);
-    }
-
-
-    *clus = afterClus;
-    *query = afterQuery;
-    return;
-
+void IndexIVFPipe::loadProfile(char* path){
+    profiler->load(path);
 }
 
 

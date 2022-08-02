@@ -61,70 +61,22 @@ double elapsed() {
 
 double t0;
 
+void test_profile(faiss::IndexIVFPipe* index){
+    index->verbose = true;
+    index->profile();
+    char a[1]="";
+    char b[100]="profileSave2.txt";
+    index->saveProfile(a);
+    index->loadProfile(a);
+    index->saveProfile(b);
 
-void test_transpose(){
+    index->verbose = false;
 
-    // check correctness
-
-    int clus = 100;
-    int query = 10;
-    int clusMax = 100;
-    int queryMax = 100;
-
-    int* clusQueryMat = new int[clus * query];
-    for(int i = 0; i < clus; i++){
-        for (int j = 0; j < query; j++){
-            clusQueryMat[i * query + j] = (i + j) % queryMax;
-        }
-    }
-
-    int* queryClusMat;
-    int* queryIds;
-    int* clusIds = new int[10000];
-    for (int i = 0; i < 10000; i++){
-        clusIds[i] = i;
-    }
-
-
-    faiss::transpose(clusQueryMat, &queryClusMat, &clus, &query, queryMax, clusMax, clusIds, &queryIds);
-
-    printf("correctness check: query:%d, clus:%d\n", query, clus);
-    for(int i = 0; i < query; i++) {
-        for (int j = 0 ; j < clus; j++){
-            printf("%d ", queryClusMat[i * clus + j]);
-        }
-        printf("\n");
-    }
-
-    
-
-    
-    // check performance
-
-    clus = 10000;
-    query = 500;
-    clusMax = 10000;
-    queryMax = 1000;
-
-    delete[] clusQueryMat;
-
-    clusQueryMat = new int[clus * query];
-    for(int i = 0; i < clus; i++){
-        for (int j = 0; j < query; j++){
-            clusQueryMat[i * query + j] = (i + j) % queryMax;
-        }
-    }
-
-    t0 = elapsed();
-
-    faiss::transpose(clusQueryMat, &queryClusMat, &clus, &query, queryMax, clusMax, clusIds, &queryIds);
-
-    double t1 = elapsed();
-
-    printf("transpose finish in time: %.3f ms\n", (t1 - t0) * 1000);
     return;
 
 }
+
+
 
 void search_demo(
             faiss::gpu::PipeGpuResources* pipe_res,
@@ -706,7 +658,26 @@ void search_demo(
 
 
 
-int main() {
+int main(int argc, char** argv) {
+
+    if (argc == 1){
+        printf("<<No test>>\n");
+        return 0;
+    }
+
+    char* option = argv[1];
+    bool kernel = false;
+    bool profile = false;
+    
+    if(*option  ==  '0'){
+        kernel = true;
+        printf("<<Kernel test>>\n");
+    }
+    else if(*option  ==  '1'){
+        profile = true;
+        printf("<<Profile test>>\n");
+    }
+
     // Set the max threads num as 8
     omp_set_num_threads(8);
     //
@@ -714,11 +685,7 @@ int main() {
 
 
 
-    // test transpose
     double t1 = elapsed();
-    printf("[%.3f s] transpose testing\n",
-               t1 - t0);
-    test_transpose();
 
 
     // dimension of the vectors to index
@@ -807,9 +774,11 @@ int main() {
     printf("[%.3f s] training   ",
                t1 - t0);
 
+
+    faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::gpu::StandardGpuResources* resources = new faiss::gpu::StandardGpuResources();
     faiss::IndexIVFPipeConfig config;
-    faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, nullptr, faiss::METRIC_L2);
+    faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, pipe_res, faiss::METRIC_L2);
     FAISS_ASSERT (config.interleavedLayout == true);
 
     index->train(nt, trainvecs);
@@ -838,26 +807,30 @@ int main() {
    
     auto pc = index->pipe_cluster;
 
-    faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
+
     pipe_res->initializeForDevice(0, pc);
 
-    // display results:searching the database
-    {
-        float distances[20][80];
-        int labels[20][80];
-
-        index->set_nprobe(5);
-        search_demo(pipe_res, resources, index, 20, queries.data(), 40, distances[0], labels[0], false);
+    if(profile){
+        test_profile(index);
     }
-    // display performance: searching the database
-    {
-        float distances[512][10];
-        int labels[512][10];
+    if(kernel){
+        // display results:searching the database
+        {
+            float distances[20][80];
+            int labels[20][80];
 
-        index->set_nprobe(512);
-        search_demo(pipe_res, resources, index, 128, queries.data(), 10, distances[0], labels[0], false);
+            index->set_nprobe(5);
+            search_demo(pipe_res, resources, index, 20, queries.data(), 40, distances[0], labels[0], false);
+        }
+        // display performance: searching the database
+        {
+            float distances[512][10];
+            int labels[512][10];
+
+            index->set_nprobe(512);
+            search_demo(pipe_res, resources, index, 128, queries.data(), 10, distances[0], labels[0], false);
+        }
     }
-
 
     return 0;
 }

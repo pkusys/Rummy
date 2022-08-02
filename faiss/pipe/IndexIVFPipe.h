@@ -18,6 +18,7 @@
 #include <faiss/gpu/PipeGpuResources.h>
 #include <faiss/gpu/utils/Tensor.cuh>
 #include <faiss/pipe/IndexFlatPipe.h>
+#include <faiss/pipe/PipeProfiler.cuh>
 #include <faiss/pipe/RestrictedGpuResources.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
@@ -25,14 +26,11 @@
 
 namespace faiss {
 
-// For benchmark
-/*
-static double elapsed() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec + tv.tv_usec * 1e-6;
+
+namespace gpu{
+    struct PipeProfiler;
 }
-*/
+
 
 struct IndexIVFPipeConfig {
     inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_32_BIT),\
@@ -132,6 +130,8 @@ struct IndexIVFPipe: Index {
     /// Size above which we page copies from the CPU to GPU
     size_t minPagedSize_;
 
+    gpu::PipeProfiler* profiler;
+
 
     IndexIVFPipe(
             size_t d_,
@@ -215,6 +215,10 @@ struct IndexIVFPipe: Index {
     //reimplmented by IndexIVFFlat
     //get_InvertedListScanner()  removed
     
+
+    void profile();
+
+
     void range_search(
             idx_t n,
             const float* x,
@@ -582,10 +586,12 @@ struct IndexIVFPipe: Index {
 
     void set_nprobe(size_t nprobe_);
 
+    void saveProfile(char* path);
+
+    void loadProfile(char* path);
+
 };
 
-
-void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, int* clusIds, int** queryIds);
 
 
 }

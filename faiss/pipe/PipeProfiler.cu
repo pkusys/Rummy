@@ -8,6 +8,7 @@
 #include <vector>
 #include <random>
 #include <sys/time.h>
+#include <stdio.h>
 #include <faiss/pipe/PipeProfiler.cuh>
 
 // Record the current time (ms)
@@ -20,6 +21,93 @@ double timepoint() {
 namespace faiss{
 namespace gpu{
 
+
+
+
+PipeProfiler::PipeProfiler(IndexIVFPipe *index)
+    {
+        index_ = index;
+        pc_ = index->pipe_cluster;
+        pgr_ = index->pipe_provider;
+        trans = new TranProfiler(this);
+        coms = new ComProfiler(this);
+    }
+
+void PipeProfiler::train(){
+    // Train the sub-profilers
+    coms->train();
+    trans->train();
+
+    istrained = true;
+}
+
+void PipeProfiler::save(char* path_){
+    char path[100];
+    if(strcmp(path_, "") == 0 ){
+        strcpy(path, "profileSave.txt");
+    }
+    else{
+        strcpy(path, path_);
+    }
+
+    FILE * fp;
+
+    fp = fopen (path, "w+");
+
+    fprintf(fp, "{trans}\n");
+    fprintf(fp, "%lf %lf\n", trans->a, trans->b);
+    fprintf(fp, "{coms}\n");
+    for (auto it = coms->computeTimeDict.begin(); it != coms->computeTimeDict.end(); it++){
+        fprintf(fp, "%zu %lf\n", it->first, it->second);
+    }
+    fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
+    
+    fprintf(fp,"{the-end}\n");
+
+    fclose(fp);
+
+}
+
+void PipeProfiler::load(char* path_){
+    char path[100];
+    char buffer[100];
+    if(strcmp(path_, "") == 0 ){
+        strcpy(path, "profileSave.txt");
+    }
+    else{
+        strcpy(path, path_);
+    }
+
+    coms->computeTimeDict.clear();
+    FILE * fp;
+
+    fp = fopen (path, "r");
+    fscanf(fp, "%s", buffer);
+    printf("loading profiler starts.\n");
+    printf("%s\n",buffer);
+
+    fscanf(fp, "%lf %lf", &(trans->a), &(trans->b));
+    printf("%lf %lf\n", trans->a, trans->b);
+    fscanf(fp, "%s", buffer);
+    printf("%s\n", buffer);
+
+    while(true){
+        unsigned long key;
+        double value;
+        fscanf(fp, "%zu %lf", &key, &value);
+        printf("%zu %lf\n", key, value);
+        if(key == 0){
+            break;
+        }
+        coms->computeTimeDict[key] = value;
+    }        
+    
+    fscanf(fp, "%s", buffer);
+    printf("%s\n", buffer);
+    fclose(fp);
+
+    return;
+}
 
 double PipeProfiler::queryTran(int pageCnt) {
     FAISS_ASSERT(trans->istrained);
@@ -44,7 +132,12 @@ double PipeProfiler::queryCom(int dataCnt, int split) {
     }
     
     auto up = coms->computeTimeDict.lower_bound(key);
-    FAISS_ASSERT(up != coms->computeTimeDict.begin() && up != coms->computeTimeDict.end());
+    FAISS_ASSERT(up != coms->computeTimeDict.begin());
+
+    if(up == coms->computeTimeDict.end()){
+        up--;
+    }
+    
     
     auto down = up;
     down --;

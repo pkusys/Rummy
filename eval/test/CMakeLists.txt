@@ -13,11 +13,8 @@ target_link_libraries(test_avl PRIVATE faiss)
 add_executable(test_cpu_quantizer EXCLUDE_FROM_ALL test_cpu_quantizer.cpp)
 target_link_libraries(test_cpu_quantizer PRIVATE faiss)
 
-add_executable(test_gpu_quantizer EXCLUDE_FROM_ALL test_gpu_quantizer.cpp)
-target_link_libraries(test_gpu_quantizer PRIVATE faiss)
-
-add_executable(test_compute_reduce EXCLUDE_FROM_ALL test_compute_reduce.cu)
-target_link_libraries(test_compute_reduce PRIVATE faiss)
+add_executable(test_profile_kernel EXCLUDE_FROM_ALL test_profile_kernel.cu)
+target_link_libraries(test_profile_kernel PRIVATE faiss)
 
 add_executable(test_heap EXCLUDE_FROM_ALL test_heap.cpp)
 target_link_libraries(test_heap PRIVATE faiss)
@@ -27,9 +24,6 @@ target_link_libraries(test_multi_sort PRIVATE faiss)
 
 add_executable(test_pipetensor EXCLUDE_FROM_ALL test_pipetensor.cpp)
 target_link_libraries(test_pipetensor PRIVATE faiss)
-
-add_executable(test_profile EXCLUDE_FROM_ALL test_profile.cu)
-target_link_libraries(test_profile PRIVATE faiss)
 
 add_executable(test_pipeline EXCLUDE_FROM_ALL test_pipeline.cu)
 target_link_libraries(test_pipeline PRIVATE faiss)

@@ -17,6 +17,8 @@
 #include <faiss/pipe/IndexIVFPipe.h>
 
 namespace faiss {
+
+struct IndexIVFPipe;
 namespace gpu {
 
 /** The class is aimed to profile the overhead of a transmission or computation 
@@ -25,26 +27,19 @@ namespace gpu {
 struct PipeProfiler{
     
     // The construct function and the two resource must be initialized first
-    PipeProfiler(PipeGpuResources *pgr, PipeCluster *pc, IndexIVFPipe *index): 
-            pgr_(pgr), pc_(pc) {
-        index_ = index;
-        trans = new TranProfiler(this);
-        coms = new ComProfiler(this);
-    }
+    PipeProfiler(IndexIVFPipe *index);
 
     ~PipeProfiler(){
         delete trans;
+        delete coms;
     }
 
 
-    void train(){
-        // Train the sub-profilers
-        coms->train();
-        trans->train();
-        
+    void train();
 
-        istrained = true;
-    }
+    void save(char* path);
+
+    void load(char* path);
 
     double queryTran(int pageCnt);
 
