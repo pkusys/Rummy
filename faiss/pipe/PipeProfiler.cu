@@ -20,6 +20,56 @@ double timepoint() {
 namespace faiss{
 namespace gpu{
 
+
+double PipeProfiler::queryTran(int pageCnt) {
+    FAISS_ASSERT(trans->istrained);
+    return trans->a * pageCnt + trans->b;
+}
+
+double PipeProfiler::queryCom(int dataCnt, int split) {
+    FAISS_ASSERT(coms->istrained);
+    bool goodsplit = false;
+    for(int i = 1; i <= 256; i *= 2) {
+        if(split == i) {
+            goodsplit = true;
+            break;
+        }
+    }
+    FAISS_ASSERT(goodsplit == true);
+    unsigned long key = (((unsigned long)dataCnt) << 32) + split;
+
+    auto target = coms->computeTimeDict.find(key);
+    if (target != coms->computeTimeDict.end()) {
+        return target->second;
+    }
+    
+    auto up = coms->computeTimeDict.lower_bound(key);
+    FAISS_ASSERT(up != coms->computeTimeDict.begin() && up != coms->computeTimeDict.end());
+    
+    auto down = up;
+    down --;
+
+    bool found = false;
+    while (down != coms->computeTimeDict.begin()) {
+        if (down->first & 0xffffffff == split){
+            found = true;
+            break;
+        }
+    }
+    FAISS_ASSERT(found);
+
+    double upTime = up->second;
+    double downTime = down->second;
+    unsigned long upDataCnt = up->first >> 32;
+    unsigned long downDataCnt = down->first >> 32;
+    double realTime = 
+        downTime + (upTime - downTime) * (dataCnt - (double)downDataCnt) / ((double)upDataCnt - (double)downDataCnt);
+    return realTime;
+ }
+
+
+
+
 void PipeProfiler::TranProfiler::train(){
     // param space
     int end = p->pgr_->pageNum_;
@@ -177,18 +227,18 @@ void PipeProfiler::ComProfiler::train(){
     int nq = nt;//fixed: 16
     int clus = 1;
     int split = 1;
-    constexpr int maxClus = 4096 * 8;
+    p->maxClus = 4096 * 8;
 
-    int* query_bcluster_matrix = new int[4096 * 8 * 16];
+    int* query_bcluster_matrix = new int[p->maxClus * 16];
 
-    for (int i = 0; i < maxClus; i++) {
+    for (int i = 0; i < p->maxClus; i++) {
         query_bcluster_matrix[i] = i % pc->bnlist;
     }
     for (int i = 0 ;i < 16; i++) {
-        memcpy(query_bcluster_matrix + maxClus * i, query_bcluster_matrix, sizeof(int) * maxClus);
+        memcpy(query_bcluster_matrix + p->maxClus * i, query_bcluster_matrix, sizeof(int) * p->maxClus);
     }
 
-    faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, maxClus}, pc);
+    faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, p->maxClus}, pc);
     query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
     query_cluster_matrix_gpu.setResources(pc, pgr);
     query_cluster_matrix_gpu.memh2d(h2d_stream);
@@ -200,9 +250,9 @@ void PipeProfiler::ComProfiler::train(){
 
     while (split <= 256) {
         clus = 1;
-        while (clus <= maxClus / split)
+        while (clus <= p->maxClus / split)
         {
-            double t0 = timepoint();
+            
 
             faiss::gpu::PipeTensor<float, 2, true> out_distances({nq, (int)k}, pc);
             out_distances.setResources(pc, pgr);
@@ -212,7 +262,8 @@ void PipeProfiler::ComProfiler::train(){
             out_indices.setResources(pc, pgr);
             out_indices.reserve();
 
-            
+            double t0 = timepoint();
+
             auto query_cluster_matrix_gpu_ = query_cluster_matrix_gpu.narrow(1, 0, clus);
 
             faiss::gpu::runKernelComputeReduce(
@@ -238,9 +289,9 @@ void PipeProfiler::ComProfiler::train(){
 
             cudaStreamSynchronize(exe_stream);
 
-            int dataCnt = nq * clus;
-            long key = (((long)dataCnt) << 32) + split;
             double t1 = timepoint();
+            int dataCnt = nq * clus;
+            unsigned long key = (((unsigned long)dataCnt) << 32) + split; 
             double tCnt = t1 - t0;
             computeTimeDict[key] = tCnt;
             clus *= 2 ;
@@ -253,9 +304,9 @@ void PipeProfiler::ComProfiler::train(){
     
     
     
-
-    delete queryids;
-    
+    delete[] trainvecs;
+    delete[] query_bcluster_matrix;
+    free(queryids);    
     istrained = true;
 }
 

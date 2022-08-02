@@ -46,6 +46,10 @@ struct PipeProfiler{
         istrained = true;
     }
 
+    double queryTran(int pageCnt);
+
+    double queryCom(int dataCnt, int split);
+
 protected:
     
     struct TranProfiler{
@@ -67,7 +71,7 @@ protected:
 
         void train();
 
-        std::map<long, double> computeTimeDict;
+        std::map<unsigned long, double> computeTimeDict;
 
         bool istrained = false;
 
@@ -108,6 +112,8 @@ public:
     bool istrained = false;
 
     bool verbose = false;
+
+    int maxClus;
 
 };
 
