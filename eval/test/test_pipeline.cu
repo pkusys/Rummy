@@ -19,7 +19,7 @@
 double elapsed() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1e3 + tv.tv_usec * 1e-3;
+    return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
 // for (int i = 0; i < 8; i++) 
@@ -37,7 +37,7 @@ int main(){
      }
 
     // test reorder
-    int cnt = 1024 * 4;
+    int cnt = 8;
 
     std::vector<int> bcluster_list(cnt);
     for(int i = 0; i < cnt; i++)
@@ -58,7 +58,13 @@ int main(){
         query_per_bcluster.data(), maxval, nullptr, false);
     auto t1 = elapsed();
 
-    printf("Construct pipescheduler time: %.3f ms\n", t1 - t0);
+    
+    printf(" ----------Demo pipeline groups ---------\n");
+    for (int i = 0; i < psch.groups.size(); i++){
+        printf("%d\n", psch.groups[i]);
+    }
+
+    printf("Construct pipescheduler time: %.3f ms\n", (t1 - t0) * 1000);
 
     
 }
