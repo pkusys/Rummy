@@ -18,6 +18,7 @@
 #include <faiss/gpu/PipeGpuResources.h>
 #include <faiss/gpu/utils/Tensor.cuh>
 #include <faiss/pipe/IndexFlatPipe.h>
+#include <faiss/pipe/PipeProfiler.cuh>
 #include <faiss/pipe/RestrictedGpuResources.h>
 #include <faiss/invlists/InvertedLists.h>
 #include <faiss/invlists/DirectMap.h>
@@ -25,14 +26,11 @@
 
 namespace faiss {
 
-// For benchmark
-/*
-static double elapsed() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec + tv.tv_usec * 1e-6;
+
+namespace gpu{
+    struct PipeProfiler;
 }
-*/
+
 
 struct IndexIVFPipeConfig {
     inline IndexIVFPipeConfig() : interleavedLayout(true), indicesOptions(gpu::INDICES_32_BIT),\
@@ -132,6 +130,8 @@ struct IndexIVFPipe: Index {
     /// Size above which we page copies from the CPU to GPU
     size_t minPagedSize_;
 
+    gpu::PipeProfiler* profiler;
+
 
     IndexIVFPipe(
             size_t d_,
@@ -215,6 +215,10 @@ struct IndexIVFPipe: Index {
     //reimplmented by IndexIVFFlat
     //get_InvertedListScanner()  removed
     
+
+    void profile();
+
+
     void range_search(
             idx_t n,
             const float* x,
@@ -316,11 +320,10 @@ struct IndexIVFPipe: Index {
     *bcluster_per_query = new int[n];
 
     // to eliminate the data dependence of the loop from line 348-365, 
-    // we allocate 8 buffer to save them saparately.
+    // we allocate nthread buffer to save them saparately.
     int nthread = omp_get_max_threads();
-    FAISS_ASSERT(nthread == 8);
-    int* clusters_query_matrix = (int*)malloc(nlist * 8 * n * sizeof(int));
-    int* query_per_cluster = (int*)malloc(8 * nlist * sizeof(int));
+    int* clusters_query_matrix = (int*)malloc(nlist * nthread * n * sizeof(int));
+    int* query_per_cluster = (int*)malloc(nthread * nlist * sizeof(int));
     
     std::vector<int> query_per_cluster_total;
     query_per_cluster_total.resize(nlist);
@@ -330,7 +333,7 @@ struct IndexIVFPipe: Index {
 
     int nt = std::min(omp_get_max_threads(), int(n));
 #pragma omp parallel for if (nt > 1)
-    for (int i = 0 ; i < 8 ; i++) {
+    for (int i = 0 ; i < nthread ; i++) {
         std::fill (query_per_cluster + i * nlist, query_per_cluster + (i + 1) * nlist, 0);
     }   
 
@@ -361,7 +364,7 @@ struct IndexIVFPipe: Index {
             int idx = i * nprobe + j;
             int clus_id = (*ori_idx)[idx];
             int idx2 = omp_get_thread_num() * nlist + clus_id;
-            int idx3 = clus_id * 8 * n + omp_get_thread_num() * n + query_per_cluster[idx2];
+            int idx3 = clus_id * nthread * n + omp_get_thread_num() * n + query_per_cluster[idx2];
             clusters_query_matrix[idx3] = i;            
             query_per_cluster[idx2] ++;
             ori_offset[idx] = offset;
@@ -374,7 +377,7 @@ struct IndexIVFPipe: Index {
 #pragma omp parallel for if (nt > 1)
     for (int i = 0; i < nlist; i++) {
         query_per_cluster_total[i] = 0;
-        for (int j = 0; j < 8; j++ ) {
+        for (int j = 0; j < nthread; j++ ) {
             query_per_cluster_total[i] += query_per_cluster[j * nlist + i];
         }
     }
@@ -419,18 +422,26 @@ struct IndexIVFPipe: Index {
     for (int i = 0; i < nlist; i++) {
         int offset_x = accumulate_cluster_offset[i];
         if (query_per_cluster_total[i] > 0) {
+
             int blcusters_num = pipe_cluster->O2Bcnt[i];
-            for (int j = 0; j < blcusters_num; j++) {
-                (*query_per_bcluster)[offset_x] = query_per_cluster_total[i];
-                int offset_2 = 0;
-                #pragma unroll
-                for (int k = 0; k < 8; k++) {
-                    memcpy (q + offset_x * (*maxquery_per_bcluster) + offset_2, 
-                        clusters_query_matrix + i*8*n + k*n, sizeof(int) * (query_per_cluster[k * nlist + i]));
-                    offset_2 += query_per_cluster[k * nlist + i];
-                }
-                std::fill(q + offset_x * (*maxquery_per_bcluster) + query_per_cluster_total[i], 
+            (*query_per_bcluster)[offset_x] = query_per_cluster_total[i];
+            int offset_2 = 0;
+            #pragma unroll
+            for (int k = 0; k < nthread; k++) {
+                memcpy (q + offset_x * (*maxquery_per_bcluster) + offset_2, 
+                    clusters_query_matrix + i*nthread*n + k*n, sizeof(int) * (query_per_cluster[k * nlist + i]));
+                offset_2 += query_per_cluster[k * nlist + i];
+            }
+            std::fill(q + offset_x * (*maxquery_per_bcluster) + query_per_cluster_total[i], 
                     q + (offset_x + 1) * (*maxquery_per_bcluster), -1);
+            offset_x += 1;
+
+            // copy the same to the other balanced cluster that this origional cluster maps to.
+            for (int j = 1; j < blcusters_num; j++) {
+                memcpy (q + offset_x * (*maxquery_per_bcluster),
+                        q + (offset_x - 1) * (*maxquery_per_bcluster),
+                        sizeof(int) * (*maxquery_per_bcluster));
+                (*query_per_bcluster)[offset_x] = query_per_cluster_total[i];        
                 offset_x += 1;
             }
         }
@@ -575,6 +586,10 @@ struct IndexIVFPipe: Index {
     void set_direct_map_type(DirectMap::Type type);
 
     void set_nprobe(size_t nprobe_);
+
+    void saveProfile(char* path);
+
+    void loadProfile(char* path);
 
 };
 

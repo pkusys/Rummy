@@ -11,6 +11,7 @@
 #include <iostream>
 
 #include <faiss/pipe/PipeScheduler.h>
+#include <faiss/gpu/utils/PipeTensor.cuh>
 
 namespace faiss {
 namespace gpu{
@@ -32,11 +33,13 @@ const int max_wait = 200 * 1000;
 
 PipeScheduler::PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
         int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
-        int* bcluster_query_matrix_, bool free_) 
-        : pc_(pc), pgr_(pgr), bcluster_cnt(bcluster_cnt_),
+        int* bcluster_query_matrix_, PipeProfiler* profiler_,
+        int queryMax_, int clusMax_, bool free_) 
+        : pc_(pc), pgr_(pgr), bcluster_cnt(bcluster_cnt_), profiler(profiler_),
         bcluster_list(bcluster_list_), query_per_bcluster(query_per_bcluster_), \
-        maxquery_per_bcluster(maxquery_per_bcluster_), bcluster_query_matrix(bcluster_query_matrix_), free(free_), \
-        num_group(1){
+        maxquery_per_bcluster(maxquery_per_bcluster_), \
+        bcluster_query_matrix(bcluster_query_matrix_), free(free_),\
+        queryMax(queryMax_), clusMax(clusMax_), num_group(1){
             reorder_list.resize(bcluster_cnt);
 
             reorder();
@@ -115,6 +118,7 @@ void PipeScheduler::reorder(){
 }
 
 void PipeScheduler::group(){
+    canv = 0;
 
     pipelinegroup opt;
 
@@ -182,9 +186,9 @@ void PipeScheduler::group(){
         first_gr.time = totaltime;
         first_gr.delay = delaytime;
         pipelinegroup rest = group(i, totaltime, delaytime, 1);
-        for (int j = 0; j < rest.content.size(); j++){
-            first_gr.content.push_back(rest.content[j]);
-        }
+        auto size = first_gr.content.size();
+        first_gr.content.resize(size + rest.content.size());
+        memcpy (first_gr.content.data() + size, rest.content.data(), sizeof(int) * rest.content.size());
         first_gr.time = rest.time;
         if (opt.time > first_gr.time)
             opt = first_gr;
@@ -192,9 +196,9 @@ void PipeScheduler::group(){
 
     std::cout << "OPT: " << opt.time << "ms \n";
 
-    for (int i = 0; i < opt.content.size(); i++){
-        groups.push_back(opt.content[i]);
-    }
+    auto size = groups.size();
+    groups.resize(size + opt.content.size());
+    memcpy(groups.data() + size,  opt.content.data(), sizeof(int) * opt.content.size());
 
     num_group = groups.size();
 
@@ -206,6 +210,12 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
     if (staclu == n){
         opt.time = total;
         opt.delay = delay;
+        
+        canv += 1;
+
+        if(canv % 1000000 == 0){
+            printf("%d\n", canv/1000000);
+        }
         return opt;
     }
     int f1 = staclu + 1;
@@ -265,12 +275,18 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
         //     std::cout << rest.content[j] << " ";
         // }
         // std::cout << " Time: " << rest.time << "ms \n";
-        for (int j = 0; j < rest.content.size(); j++){
-            first_gr.content.push_back(rest.content[j]);
-        }
+        auto size = first_gr.content.size();
+        first_gr.content.resize(size + rest.content.size());
+        memcpy (first_gr.content.data() + size, rest.content.data(), sizeof(int) * rest.content.size());
         first_gr.time = rest.time;
         if (opt.time > first_gr.time)
             opt = first_gr;
+    }
+
+    canv += 1;
+
+    if(canv % 1000000 == 0){
+        printf("%d\n", canv/1000000);
     }
     return opt;
 
@@ -372,15 +388,150 @@ void PipeScheduler::process(int k, float *dis, int *label){
 float PipeScheduler::measure_tran(int num){
     if (num == 0)
         return 0.;
-    return 2. * num + 3;
+    
+    if (profiler != nullptr) {
+        return profiler->queryTran(num);
+    }
+    return 0.01 * num + 0.02;
 }
 
 float PipeScheduler::measure_com(int sta, int end){
     if (sta == end)
         return 0.;
     // return 0.6 * (end - sta) * (float(reorder_list.size())/end) + 0.1;
-    int num = end - sta;
-    return 2. * num + 3;
+    if (profiler != nullptr) {
+        int dataCnt = 0;
+        for( int i = sta; i < end; i++) {
+            dataCnt += query_per_bcluster[reversemap[reorder_list[i]]];
+        }
+        return profiler->queryCom(dataCnt);
+    }
+    else {
+        int dataCnt = 0;
+        for( int i = sta; i < end; i++) {
+            dataCnt += query_per_bcluster[reversemap[reorder_list[i]]];
+        }
+        return 0.0002 * (double)dataCnt + .02;
+    }
+
+}
+
+
+void PipeScheduler::compute(){
+
+    auto groupNum = groups.size();
+ 
+    for (int i = 0; i < groupNum; i++) {
+        int start = (i == 0) ? 0 : groups[i - 1];
+        int cnt = groups[i] - start;
+
+        std::vector<int> rows;
+        rows.resize(cnt);
+        int* queryClusSubmat;
+
+        for (int j = 0; j < cnt; j++){
+            int order = reversemap[reorder_list[start + j]];
+            rows[j] = order;
+        }
+        int clus = cnt;
+        int query = query_per_bcluster[reversemap[reorder_list[start]]];
+        int* queryIds;
+
+        transpose(bcluster_query_matrix, &queryClusSubmat, &clus, &query, queryMax, clusMax, rows, bcluster_list, &queryIds);
+
+        delete[] queryClusSubmat;
+        delete[] queryIds;
+
+    }
+/*
+    PipeTensor<int, 2, true> bcluster_query_tensor({n, cluster_split}, pc);
+
+
+    bcluster_query_tensor.copyFrom(result_distances, h2d_stream);
+    bcluster_query_tensor.setResources(pc, pipe_res);
+    bcluster_query_tensor.memh2d(h2d_stream);
+*/
+
+
+    
+}
+
+
+void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
+
+    int oriClus = *clus;
+    int oriQuery = *query;
+    int afterClus = 0;
+    int afterQuery = 0;
+
+    int* clusPerQuery = new int[queryMax];
+    *queryIds = new int[queryMax];
+
+    std::fill(clusPerQuery, clusPerQuery + queryMax, 0);
+    std::vector<std::vector<int>> queryClus;
+    queryClus.resize(queryMax);
+
+    omp_set_num_threads(8);
+    int nt = omp_get_max_threads();
+
+    int** clusPerQuerySlave = new int*[nt];
+    int** SlaveOffset = new int*[nt];
+    int** queryClusMatSlave = new int*[nt];
+
+    #pragma omp parallel for
+    for (int i = 0; i < nt; i++){
+        clusPerQuerySlave[i] = new int[queryMax];
+        queryClusMatSlave[i] = new int[queryMax * clusMax];
+        SlaveOffset[i] = new int[queryMax];
+        std::fill(clusPerQuerySlave[i], clusPerQuerySlave[i] + queryMax, 0);
+    }
+
+
+
+    #pragma omp parallel for
+    for (int i = 0; i < oriClus; i++) {
+        int clusRow = rows[i];
+        int rank = omp_get_thread_num();
+        int clus = clusIds[clusRow];
+        for (int j = 0; j < oriQuery; j++) {
+            int query = clusQueryMat[oriQuery * clusRow + j];
+            if (query == -1) {
+                continue;
+            }
+            queryClusMatSlave[rank][query * clusMax + clusPerQuerySlave[rank][query]] = clus;
+            clusPerQuerySlave[rank][query] += 1;
+        }
+
+    }
+
+    for(int i = 0; i < queryMax; i++) {
+        for (int j = 0; j < nt; j++) {
+            SlaveOffset[j][i] = clusPerQuery[i];
+            clusPerQuery[i] += clusPerQuerySlave[j][i];
+        }
+        afterClus = std::max(afterClus, clusPerQuery[i]);
+        if (clusPerQuery[i] != 0) {
+            (*queryIds)[afterQuery] = i;
+            afterQuery ++;
+        }
+    }
+
+    *queryClusMat = new int[afterQuery * afterClus];
+
+    #pragma omp parallel for
+    for (int i = 0; i < afterQuery ; i++) {
+        int queryId = (*queryIds)[i];
+        for (int j = 0; j < nt ; j++) {
+            memcpy (*queryClusMat + afterClus * i + SlaveOffset[j][queryId], queryClusMatSlave[j] + queryId * clusMax, clusPerQuerySlave[j][queryId] * sizeof(int));
+        }
+        std::fill(*queryClusMat + afterClus * i + clusPerQuery[queryId], *queryClusMat + afterClus * (i + 1), -1);
+    }
+
+
+    *clus = afterClus;
+    *query = afterQuery;
+    return;
+
 }
 
 

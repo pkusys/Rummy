@@ -61,7 +61,47 @@ double elapsed() {
 
 double t0;
 
+void test_profile(faiss::IndexIVFPipe* index){
+    index->verbose = true;
+    index->profile();
+    char a[1]="";
+    char b[100]="profileSave2.txt";
+    char c[100]="profileQuery.txt";
+    index->saveProfile(a);
+    index->loadProfile(a);
+    index->saveProfile(b);
+
+
+
+    FILE * fp;
+
+    fp = fopen (c, "w+");
+
+    fprintf(fp, "{trans}\n");
+    for (int i = 1; i < index->pipe_cluster->bnlist; i++){
+        fprintf(fp, "%d %lf\n", i, index->profiler->queryTran(i));
+    }
+
+    fprintf(fp, "{coms}\n");
+    for (int i = 1; i < 2 * index->profiler->maxClus * 16; i++){
+        fprintf(fp, "%d %lf\n", i, index->profiler->queryCom(i, 1));
+    }
+
+    fprintf(fp,"{the-end}\n");
+
+    fclose(fp);
+
+
+    index->verbose = false;
+
+    return;
+
+}
+
+
+
 void search_demo(
+            faiss::gpu::PipeGpuResources* pipe_res,
             faiss::gpu::StandardGpuResources* res,
             faiss::IndexIVFPipe* index,
             int n,
@@ -71,7 +111,7 @@ void search_demo(
             int* labels,
             bool display){
                 
-            printf("\n entering search_demo\n");
+            printf("[%.3f s] Sample list starts.\n", elapsed() - t0);
             float* coarse_dis;
             int* ori_idx;
             int* bcluster_per_query;
@@ -84,12 +124,12 @@ void search_demo(
             int maxquery_per_bcluster;
             int* bcluster_query_matrix;
 
-            faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
+
 
             double t1 = elapsed();
 
             // sample_list() test
-            //NOTE: omp is not enabled as this is a .cu file
+
             index->sample_list(n, x, &coarse_dis, &ori_idx,\
                     &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
@@ -139,7 +179,7 @@ void search_demo(
                 }
             }
             else{
-                printf("[%.3f s] Query results (only display shape info):\n",
+                printf("[%.3f s] Sample list result shape:\n",
                     elapsed() - t0);
 
                 printf("nquery:%d,maxbcluster_per_query:%d, actual_nprobe:%d\n", n, maxbcluster_per_query, actual_nprobe);
@@ -173,7 +213,7 @@ void search_demo(
             auto ListLength_vec = pc->BCluSize;
             auto res_ = res->getResources().get();
             auto stream = res->getDefaultStream(0);
-            pipe_res->initializeForDevice(0, pc);
+            
             auto d2h_stream = pipe_res->getCopyD2HStream(0);
             auto exe_stream = pipe_res->getExecuteStream(0);
             auto h2d_stream = pipe_res->getCopyH2DStream(0);
@@ -301,14 +341,17 @@ void search_demo(
 
 
                     // display 10 query's results.
-                    for(int q0 = 0; q0 < 10; q0++) {
-                        for(int q1 = 0;q1 < k; q1++) {
-                            float distance = out_distances[q0][q1];
-                            int indice = out_indices[q0][q1];
-                            printf("%f,%d  ", distance , indice);
+                    if (display) {
+                        for(int q0 = 0; q0 < 10; q0++) {
+                            for(int q1 = 0;q1 < k; q1++) {
+                                float distance = out_distances[q0][q1];
+                                int indice = out_indices[q0][q1];
+                                printf("%f,%d  ", distance , indice);
+                            }
+                            printf("\n");
                         }
-                        printf("\n");
                     }
+                    
                 }
             }
 
@@ -485,15 +528,18 @@ void search_demo(
                 out_indices.memd2h(d2h_stream);
                 cudaStreamSynchronize(d2h_stream);
 
-                // display 10 query's results.
-                for(int q0 = 0; q0 < 10; q0++) {
-                    for(int q1 = 0;q1 < k; q1++) {
-                        float distance = out_distances[q0][q1];
-                        int indice = out_indices[q0][q1];
-                        printf("%f,%d  ", distance, indice);
+                if (display) {
+                    // display 10 query's results.
+                    for(int q0 = 0; q0 < 10; q0++) {
+                        for(int q1 = 0;q1 < k; q1++) {
+                            float distance = out_distances[q0][q1];
+                            int indice = out_indices[q0][q1];
+                            printf("%f,%d  ", distance, indice);
+                        }
+                        printf("\n");
                     }
-                    printf("\n");
                 }
+                
 
             }
 
@@ -594,14 +640,17 @@ void search_demo(
             bool correctness = true;
             
             // display 10 query's results.
-            for(int q0 = 0; q0 < 10; q0++) {
-                for(int q1 = 0;q1 < k; q1++) {
-                    float distance = hostDistance[q0][q1];
-                    int indice = hostIndice[q0][q1];
-                    printf("%f,%d  ", distance, indice);                        
+            if(display) {
+                for(int q0 = 0; q0 < 10; q0++) {
+                    for(int q1 = 0;q1 < k; q1++) {
+                        float distance = hostDistance[q0][q1];
+                        int indice = hostIndice[q0][q1];
+                        printf("%f,%d  ", distance, indice);                        
+                    }
+                    printf("\n");
                 }
-                printf("\n");
             }
+            
 
             
             for(int q0 = 0; q0 < n; q0++) {
@@ -631,12 +680,35 @@ void search_demo(
 
 
 
-int main() {
+int main(int argc, char** argv) {
+
+    if (argc == 1){
+        printf("<<No test>>\n");
+        return 0;
+    }
+
+    char* option = argv[1];
+    bool kernel = false;
+    bool profile = false;
+    
+    if(*option  ==  '0'){
+        kernel = true;
+        printf("<<Kernel test>>\n");
+    }
+    else if(*option  ==  '1'){
+        profile = true;
+        printf("<<Profile test>>\n");
+    }
+
     // Set the max threads num as 8
     omp_set_num_threads(8);
     //
     t0 = elapsed();
-    double t1 = 0.0;
+
+
+
+    double t1 = elapsed();
+
 
     // dimension of the vectors to index
     int d = 128;
@@ -649,7 +721,7 @@ int main() {
     size_t nt = 100 * 1000;
 
     // a reasonable number of centroids to index nb vectors
-    int ncentroids = 1024;
+    int ncentroids = 64;
 
     int dev_no = 0;
     
@@ -724,9 +796,11 @@ int main() {
     printf("[%.3f s] training   ",
                t1 - t0);
 
+
+    faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::gpu::StandardGpuResources* resources = new faiss::gpu::StandardGpuResources();
     faiss::IndexIVFPipeConfig config;
-    faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, nullptr, faiss::METRIC_L2);
+    faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, pipe_res, faiss::METRIC_L2);
     FAISS_ASSERT (config.interleavedLayout == true);
 
     index->train(nt, trainvecs);
@@ -753,24 +827,32 @@ int main() {
     
     printf("{FINISHED in %.3f s}\n", elapsed() - t1);
    
-    // display results:searching the database
-    {
-        float distances[20][5];
-        int labels[20][5];
+    auto pc = index->pipe_cluster;
 
-        index->set_nprobe(5);
-        search_demo(resources, index, 20, queries.data(), 5, distances[0], labels[0], true);
+
+    pipe_res->initializeForDevice(0, pc);
+
+    if(profile){
+        test_profile(index);
     }
-    
-    // display performance: searching the database
-    {
-        float distances[512][5];
-        int labels[512][5];
+    if(kernel){
+        // display results:searching the database
+        {
+            float distances[20][80];
+            int labels[20][80];
 
-        index->set_nprobe(512);
-        search_demo(resources, index, 256, queries.data(), 5, distances[0], labels[0], false);
+            index->set_nprobe(5);
+            search_demo(pipe_res, resources, index, 20, queries.data(), 40, distances[0], labels[0], false);
+        }
+        // display performance: searching the database
+        {
+            float distances[512][10];
+            int labels[512][10];
+
+            index->set_nprobe(512);
+            search_demo(pipe_res, resources, index, 128, queries.data(), 10, distances[0], labels[0], false);
+        }
     }
-
 
     return 0;
 }

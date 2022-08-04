@@ -560,9 +560,9 @@ AVLTreeNode<K, V>* PipeAVLTree<K, V>::remove(AVLTreeNode<K, V>* &tree, AVLTreeNo
         if (height(tree->left) - height(tree->right) == 2){
             AVLTreeNode<K, V> *l =  tree->left;
             if (height(l->right) > height(l->left))
-                tree = LRRotate(tree);
+                tree = LRRotate(tree);       
             else
-                tree = LLRotate(tree);
+                tree = LLRotate(tree);    
         }
     }
     else
@@ -571,11 +571,13 @@ AVLTreeNode<K, V>* PipeAVLTree<K, V>::remove(AVLTreeNode<K, V>* &tree, AVLTreeNo
             if (height(tree->left) > height(tree->right)){
                 AVLTreeNode<K, V>* maxv = maximum(tree->left);
                 tree->key = maxv->key;
+                tree->val = maxv->val;
                 tree->left = remove(tree->left, maxv);
             }
             else{
-                AVLTreeNode<K, V>* minv = maximum(tree->right);
+                AVLTreeNode<K, V>* minv = minimum(tree->right);
                 tree->key = minv->key;
+                tree->val = minv->val;
                 tree->right = remove(tree->right, minv);
             }
         }
@@ -585,6 +587,11 @@ AVLTreeNode<K, V>* PipeAVLTree<K, V>::remove(AVLTreeNode<K, V>* &tree, AVLTreeNo
             delete tmp;
         }
     }
+
+    if(tree) {
+        tree->height = std::max(height(tree->left), height(tree->right)) + 1;
+    }
+
     return tree;
 }
 
@@ -628,9 +635,9 @@ void PipeAVLTree<K, V>::print(AVLTreeNode<K, V>* tree, K k, V v, int direction)
 {
     if(tree != nullptr){
         if(direction==0)
-            std::cout << std::setw(2) << tree->key << " is root" << std::endl;
+            std::cout << std::setw(2) << tree->key << "," << tree->val << " is root" << std::endl;
         else
-            std::cout << std::setw(2) << tree->key << " is " << std::setw(2) << k
+            std::cout << std::setw(2) << tree->key << "," << tree->val<< " is " << std::setw(2) << k <<"," << v
                 << "'s "  << std::setw(12) << (direction==1?"right child" : "left child") << std::endl;
 
         print(tree->left, tree->key, tree->val,-1);

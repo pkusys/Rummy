@@ -325,6 +325,7 @@ void runKernelComputeReduce(
     for(int i = 1; i <= 256; i *= 2) {
         if(split == i) {
             goodsplit = true;
+            break;
         }
     }
     FAISS_ASSERT(goodsplit == true);

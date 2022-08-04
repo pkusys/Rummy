@@ -34,7 +34,17 @@
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/pipe/PipeKernel.cuh>
 
+// For benchmark
+
+
+
 namespace faiss {
+
+static double timepoint() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
 
 /*****************************************
  * IndexIVFPipe implementation
@@ -120,6 +130,8 @@ IndexIVFPipe::IndexIVFPipe(
     direct_map = new DirectMap();
     invlists = new ArrayInvertedLists(nlist, code_size);
     pipe_cluster = nullptr;
+
+    profiler = nullptr;
 }
 
 
@@ -777,6 +789,31 @@ void IndexIVFPipe::balance() {
 void IndexIVFPipe::set_nprobe(size_t nprobe_) {
     nprobe = nprobe_;
 }
+
+void IndexIVFPipe::profile() {
+    double t0 = timepoint();
+    if(verbose)
+        printf("start profile\n");
+
+    profiler = new gpu::PipeProfiler(this);
+
+    profiler-> train();
+
+    double t1 = timepoint();
+    if(verbose)
+        printf("{FINISHED in %.3f s}\n", t1 - t0);
+
+}
+
+void IndexIVFPipe::saveProfile(char* path){
+    profiler->save(path);
+}
+
+void IndexIVFPipe::loadProfile(char* path){
+    profiler->load(path);
+}
+
+
 
 
 }

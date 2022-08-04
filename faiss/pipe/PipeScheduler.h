@@ -17,6 +17,7 @@
 #include <faiss/pipe/PipeKernel.cuh>
 #include <faiss/pipe/PipeCluster.h>
 #include <faiss/pipe/PipeStructure.h>
+#include <faiss/pipe/PipeProfiler.cuh>
 
 namespace faiss{
 namespace gpu{
@@ -40,7 +41,8 @@ public:
     // construct function
     PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
             int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
-            int* bcluster_query_matrix_, bool free_ = true);
+            int* bcluster_query_matrix_, PipeProfiler* profiler_,
+            int queryMax_, int clusMax_, bool free_ = true);
 
     ~PipeScheduler();
 
@@ -60,7 +62,11 @@ public:
 
     float measure_com(int sta, int end);
 
+    void compute();
+
 public:
+
+    int canv;
 
     // the corresponding pipecluster
     PipeCluster* pc_;
@@ -70,6 +76,12 @@ public:
 
     // if free the sample params
     bool free;
+
+    // the total number of query to compute
+    int queryMax;
+
+    // the total number of clusters the index keeps
+    int clusMax;
 
     // the number of balanced clusters concerning
     int bcluster_cnt;
@@ -94,7 +106,7 @@ public:
     int part_size;
 
     // reverse map of bcluster_list
-    std::unordered_map<int, bool> reversemap;
+    std::unordered_map<int, int> reversemap;
 
     // the group number
     int num_group;
@@ -104,7 +116,12 @@ public:
     // result of group algorithm
     std::vector<int> groups;
 
+    PipeProfiler* profiler;
+
 };
+
+
+void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds);
 
 } // namespace gpu
 } // namespace faiss
