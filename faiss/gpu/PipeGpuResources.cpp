@@ -394,12 +394,14 @@ MemBlock PipeGpuResources::allocMemory(int size){
     }
     cnt = 0;
 
+    std::vector<std::pair<int, int> > tmppairs(size);
     // Try to reallocate pages
     for (int i= 0; i < size - freecnt; i++){
         if(pc_->LRUtree_->size == 0)
             break;
         
         std::pair<int, int> tmppair = pc_->LRUtree_->minimum();
+        tmppairs[cnt] = tmppair;
         alloc[freecnt+cnt] = tmppair.second;
 
         // Delete the free pages in avl tree
@@ -411,12 +413,24 @@ MemBlock PipeGpuResources::allocMemory(int size){
         // Free these pages
         for (int i = freecnt; i < size; i++){
             int id = alloc[i];
+            pc_->clu_page[pageinfo[id]] = -1;
             pc_->setonDevice(pageinfo[id], id, false, false);
             pageinfo[id] = -1;
         }
         std::sort(alloc.begin(), alloc.end());
         best.pages = std::move(alloc);
         return best;
+    }
+    // No enough pages to allcate
+    // Reset the allocated pages in trees
+    else{
+        int i = 0;
+        for (; i < freecnt; i++){
+            pc_->LRUtree_->insert(alloc[i], alloc[i]);
+        }
+        for (; i < freecnt + cnt; i++){
+            pc_->LRUtree_->insert(tmppairs[i - freecnt].first, tmppairs[i - freecnt].second);
+        }
     }
 
     best.valid = false;

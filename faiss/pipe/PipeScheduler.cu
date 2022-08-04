@@ -21,6 +21,15 @@ double elapsed() {
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+// Thread function: computation
+void *computation(void *arg){
+
+}
+
+const int wait_interval = 5 * 1000; // 5 ms
+
+const int max_wait = 200 * 1000;
+
 PipeScheduler::PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
         int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
         int* bcluster_query_matrix_, bool free_) 
@@ -33,6 +42,9 @@ PipeScheduler::PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluste
             reorder();
 
             group();
+
+            // Initialize the computation threads
+            pc_->com_threads.resize(num_group);
 
         }
 
@@ -153,7 +165,7 @@ void PipeScheduler::group(){
             delaytime = measure_com(part_size, i) + interval;
             totaltime = std::max(tran1, delay) + delaytime - interval;
             float comtime = totaltime + measure_com(i, n);
-            float time = std::min(comtime, trantime);
+            float time = std::max(comtime, trantime);
             if (time >= opt.time)
                 continue;
         }
@@ -183,6 +195,8 @@ void PipeScheduler::group(){
     for (int i = 0; i < opt.content.size(); i++){
         groups.push_back(opt.content[i]);
     }
+
+    num_group = groups.size();
 
 }
 
@@ -225,7 +239,7 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
             else
                 totaltime = total - delay + tran1 + delaytime;
             float comtime = totaltime + measure_com(i, n);
-            float time = std::min(comtime, trantime);
+            float time = std::max(comtime, trantime);
             if (time >= opt.time)
                 continue;
         }
@@ -260,6 +274,99 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
     }
     return opt;
 
+}
+
+void PipeScheduler::process(int k, float *dis, int *label){
+    // pined the future pages
+    for (int i = 0; i < reorder_list.size(); i++){
+        int c = reorder_list[i];
+        bool che = pc_->readonDevice(c);
+        if (che){
+            int page = pc_->clu_page[c];
+            FAISS_ASSERT(page >= 0);
+            pc_->setPinnedDevice(c, page, true);
+        }
+    }
+    // loop over groups
+    for (int i = 0 ; i < num_group; i++){
+        int sta = (i == 0 ? 0 : groups[i-1]);
+        int end = groups[i];
+        
+        FAISS_ASSERT(end > sta);
+
+        // Transmission
+        std::vector<int> clusters(end - sta);
+        std::vector<bool> noresident(end - sta);
+        int num = 0;
+        for (int j = 0; j < clusters.size(); j++){
+            clusters[j] = reorder_list[sta + j];
+        }
+        pthread_mutex_lock(&(pc_->resource_mutex));
+        for (int j = 0; j < clusters.size(); j++){
+            bool che = pc_->readonDevice(clusters[j]);
+            if (!che){
+                noresident[num] = clusters[j];
+                num++;
+            }
+            else{
+                int page = pc_->clu_page[clusters[j]];
+                FAISS_ASSERT(page >= 0);
+                pc_->setComDevice(clusters[j], page, true);
+            }
+        }
+        pthread_mutex_unlock(&(pc_->resource_mutex));
+
+        // Allocate pages and transmission
+        if (num > 0){
+            int wait_time = 0;
+            while (true){
+                pthread_mutex_lock(&(pc_->resource_mutex));
+                faiss::gpu::MemBlock mb = pgr_->allocMemory(num);
+
+                if (mb.valid){
+                    for (int j = 0; j < num; j++){
+                        int clus = clusters[j];
+                        pgr_->pageinfo[mb.pages[j]] = clus;
+                        pc_->setonDevice(clus, mb.pages[j], true);
+                        pc_->setComDevice(clus, mb.pages[j], true);
+                        // Memory transfer
+                        // Use default stream here (no need to manually sync)
+                        pgr_->memcpyh2d(mb.pages[j]);
+
+                        // p->pc_->addGlobalCount(clus, mb.pages[j], 1);
+                    }
+                    pthread_mutex_unlock(&(pc_->resource_mutex));
+                    break;
+                }
+                else{
+                    if (wait_time > max_wait){
+                        // Cancel pinned pages
+                        for (int j = 0; j < pc_->clu_page.size(); j++){
+                            bool che = pc_->readonDevice(j);
+                            if (che){
+                                bool chep = pc_->readPinnedonDevice(j);
+                                if (chep){
+                                    int page = pc_->clu_page[j];
+                                    FAISS_ASSERT(page >= 0);
+                                    pc_->setPinnedonDevice(j, page, false);
+                                }
+                            }
+                        }
+                        wait_time = 0;
+                        pthread_mutex_unlock(&(pc_->resource_mutex));
+                        continue;
+                    }
+                    pthread_mutex_unlock(&(pc_->resource_mutex));
+                    usleep(wait_interval);
+                    wait_time += wait_interval;
+                }
+            }
+        }
+
+        // Start computation
+        pthread_create(&(pc_->com_threads[i]), NULL, computation, this);
+
+    }
 }
 
 float PipeScheduler::measure_tran(int num){

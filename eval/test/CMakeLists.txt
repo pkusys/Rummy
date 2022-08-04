@@ -33,3 +33,6 @@ target_link_libraries(test_pipeline PRIVATE faiss)
 
 add_executable(test_multi EXCLUDE_FROM_ALL test_multi_sort.cu)
 target_link_libraries(test_multi PRIVATE faiss)
+
+add_executable(test_pthread EXCLUDE_FROM_ALL test_pthread.cpp)
+target_link_libraries(test_pthread PRIVATE faiss)

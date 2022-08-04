@@ -72,14 +72,18 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     // Initialize the device memory info
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
+    isComDevice.resize(BCluSize.size());
     Mem.resize(BCluSize.size());
     Balan_ids.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
     DeviceMem.resize(BCluSize.size());
+    clu_page.resize(BCluSize.size());
 
     std::fill(isonDevice.begin(), isonDevice.end(), false);
     std::fill(isPinnedDevice.begin(), isPinnedDevice.end(), false);
+    std::fill(isComDevice.begin(), isComDevice.end(), false);
     std::fill(GlobalCount.begin(), GlobalCount.end(), 0);
+    std::fill(clu_page.begin(), clu_page.end(), -1);
 
     // Construct the OnDevice cluster
     auto tmptree = std::unique_ptr<PipeAVLTree<int,int> >
@@ -90,12 +94,21 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     mallocPinnedMem();
     // mallocNoPinnedMem();
 
+    pthread_mutex_init(&resource_mutex, 0);
+
+    pthread_mutex_init(&com_mutex, 0);
+
 }
 
 PipeCluster::~PipeCluster(){
     // Free the allocated memory if necessary
     if (!Mem.empty())
         freeMem();
+    
+    // Free the mutex
+    pthread_mutex_destroy(&resource_mutex);
+
+    pthread_mutex_destroy(&com_mutex);
 }
 
 void PipeCluster::balance(const float svr){
@@ -338,11 +351,31 @@ void PipeCluster::setPinnedonDevice(int id, int page_id, bool b, bool avl){
     // Set the status
     isPinnedDevice[id] = b;
     if (avl){
-        LRUtree_->remove(readGlobalCount(id), page_id);
+        if (b){
+            LRUtree_->remove(readGlobalCount(id), page_id);
+        }
+        else{
+            LRUtree_->insert(readGlobalCount(id), page_id);
+        }
     }
-    else{
-        LRUtree_->insert(readGlobalCount(id), page_id);
+}
+
+void PipeCluster::setComDevice(int id, int page_id, bool b, bool avl){
+    // Set the status
+    isComDevice[id] = b;
+    if (avl){
+        if (b){
+            LRUtree_->remove(readGlobalCount(id), page_id);
+        }
+        else{
+            LRUtree_->insert(readGlobalCount(id), page_id);
+        }
     }
+}
+
+bool PipeCluster::readComDevice(int id){
+    // Read the status
+    return isComDevice[id];
 }
 
 bool PipeCluster::readPinnedonDevice(int id){

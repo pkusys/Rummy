@@ -17,6 +17,7 @@
 #include <list>
 #include <memory>
 #include <tuple>
+#include <pthread.h>  
 
 namespace faiss {
 
@@ -121,8 +122,23 @@ public: // For convenient, may change the mode to public later
     // Check if the cluster is pinned on the device
     std::vector<bool> isPinnedDevice;
 
+    // Check if the cluster is currently executed by one query on device
+    std::vector<bool> isComDevice;
+
     /// LRU count
     std::vector<int> GlobalCount;
+
+    /// Map Cluster -> page id
+    std::vector<int> clu_page;
+
+    // mutex to lock pipecluster and pipegpuresource
+    pthread_mutex_t resource_mutex;
+
+    // mutex to guarantee there is only one thread exec in computation
+    pthread_mutex_t com_mutex;
+
+    // the computation threads
+    std::vector<pthread_t> com_threads;
 
 protected:
     struct PinStack{

@@ -52,6 +52,9 @@ public:
 
     pipelinegroup group(int staclu, float total, float delay, int depth);
 
+    // enter multi-threads
+    void process(int k, float *dis, int *label);
+
     // Mesure the tran and com time for the number of clusters (ms)
     float measure_tran(int num);
 
