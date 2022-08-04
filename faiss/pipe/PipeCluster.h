@@ -53,8 +53,15 @@ public:
     // (avl means if you want to change the avl tree)
     void setonDevice(int clu_id, int page_id, bool b, bool avl = true);
 
+    // Set the balanced clusters's status on computation 
+    // (avl means if you want to change the avl tree)
+    void setComDevice(int clu_id, int page_id, bool b, bool avl = true);
+
     // Return if the cluster is on device
     bool readonDevice(int id);
+
+    // Return if the cluster is on device
+    bool readComDevice(int id);
 
     // Add the Global count by reference number (If not in GPU pageid = -1)
     void addGlobalCount(int id, int pageid, int num);

@@ -24,7 +24,7 @@ double elapsed() {
 
 // Thread function: computation
 void *computation(void *arg){
-
+    return((void *)0);
 }
 
 const int wait_interval = 5 * 1000; // 5 ms
@@ -300,7 +300,7 @@ void PipeScheduler::process(int k, float *dis, int *label){
         if (che){
             int page = pc_->clu_page[c];
             FAISS_ASSERT(page >= 0);
-            pc_->setPinnedDevice(c, page, true);
+            pc_->setPinnedonDevice(c, page, true);
         }
     }
     // loop over groups
