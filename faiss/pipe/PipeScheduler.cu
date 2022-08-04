@@ -106,6 +106,7 @@ void PipeScheduler::reorder(){
 }
 
 void PipeScheduler::group(){
+    canv = 0;
 
     pipelinegroup opt;
 
@@ -195,6 +196,12 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
     if (staclu == n){
         opt.time = total;
         opt.delay = delay;
+        
+        canv += 1;
+
+        if(canv % 1000000 == 0){
+            printf("%d\n", canv/1000000);
+        }
         return opt;
     }
     int f1 = staclu + 1;
@@ -261,6 +268,12 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
         if (opt.time > first_gr.time)
             opt = first_gr;
     }
+
+    canv += 1;
+
+    if(canv % 1000000 == 0){
+        printf("%d\n", canv/1000000);
+    }
     return opt;
 
 }
@@ -272,7 +285,7 @@ float PipeScheduler::measure_tran(int num){
     if (profiler != nullptr) {
         return profiler->queryTran(num);
     }
-    return 2. * num + 3;
+    return 0.01 * num + 0.02;
 }
 
 float PipeScheduler::measure_com(int sta, int end){
@@ -280,17 +293,18 @@ float PipeScheduler::measure_com(int sta, int end){
         return 0.;
     // return 0.6 * (end - sta) * (float(reorder_list.size())/end) + 0.1;
     if (profiler != nullptr) {
-        if (end <= part_size || sta >= part_size) {
-            return profiler->queryCom((end - sta) * query_per_bcluster[reversemap[reorder_list[sta]]], 1);
+        int dataCnt = 0;
+        for( int i = sta; i < end; i++) {
+            dataCnt += query_per_bcluster[reversemap[reorder_list[i]]];
         }
-        else{
-            int maxQuery = std::max(query_per_bcluster[reversemap[reorder_list[sta]]], query_per_bcluster[reversemap[reorder_list[part_size]]]);
-            return profiler->queryCom((end - sta) * maxQuery, 1);
-        }
+        return profiler->queryCom(dataCnt);
     }
     else {
-        int num = (end - sta) * query_per_bcluster[reversemap[reorder_list[sta]]];
-        return 20 * num + .3;
+        int dataCnt = 0;
+        for( int i = sta; i < end; i++) {
+            dataCnt += query_per_bcluster[reversemap[reorder_list[i]]];
+        }
+        return 0.0002 * (double)dataCnt + .02;
     }
 
 }

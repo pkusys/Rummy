@@ -55,7 +55,11 @@ void PipeProfiler::save(char* path_){
     fp = fopen (path, "w+");
 
     fprintf(fp, "{trans}\n");
-    fprintf(fp, "%lf %lf\n", trans->a, trans->b);
+    for (auto it = trans->tranTimeDict.begin(); it != trans->tranTimeDict.end(); it++){
+        fprintf(fp, "%d %lf\n", it->first, it->second);
+    }
+    fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
+
     fprintf(fp, "{coms}\n");
     for (auto it = coms->computeTimeDict.begin(); it != coms->computeTimeDict.end(); it++){
         fprintf(fp, "%zu %lf\n", it->first, it->second);
@@ -79,23 +83,32 @@ void PipeProfiler::load(char* path_){
     }
 
     coms->computeTimeDict.clear();
+    trans->tranTimeDict.clear();
     FILE * fp;
 
     fp = fopen (path, "r");
     fscanf(fp, "%s", buffer);
-    printf("loading profiler starts.\n");
+    //printf("loading profiler starts.\n");
     printf("%s\n",buffer);
 
-    fscanf(fp, "%lf %lf", &(trans->a), &(trans->b));
-    printf("%lf %lf\n", trans->a, trans->b);
+    while(true){
+        int key;
+        double value;
+        fscanf(fp, "%d %lf", &key, &value);
+        //printf("%d %lf\n", key, value);
+        if(key == 0){
+            break;
+        }
+        trans->tranTimeDict[key] = value;
+    }        
     fscanf(fp, "%s", buffer);
-    printf("%s\n", buffer);
+    //printf("%s\n", buffer);
 
     while(true){
         unsigned long key;
         double value;
         fscanf(fp, "%zu %lf", &key, &value);
-        printf("%zu %lf\n", key, value);
+        //printf("%zu %lf\n", key, value);
         if(key == 0){
             break;
         }
@@ -103,7 +116,7 @@ void PipeProfiler::load(char* path_){
     }        
     
     fscanf(fp, "%s", buffer);
-    printf("%s\n", buffer);
+    //printf("%s\n", buffer);
     fclose(fp);
 
     return;
@@ -111,7 +124,34 @@ void PipeProfiler::load(char* path_){
 
 double PipeProfiler::queryTran(int pageCnt) {
     FAISS_ASSERT(trans->istrained);
-    return trans->a * pageCnt + trans->b;
+
+    auto target = trans->tranTimeDict.find(pageCnt);
+
+    if (target != trans->tranTimeDict.end()){
+        return target->second;
+    }
+
+    auto up = trans->tranTimeDict.lower_bound(pageCnt);
+    auto down = up;
+    if(up == trans->tranTimeDict.end()){
+        up--;
+        down = up;
+        down--;
+    }
+    else if (down == trans->tranTimeDict.begin()){
+        up ++;
+    }
+    else{
+        down --;
+    }
+
+
+    double downTime = down->second;
+    double upTime = up->second;
+    double realTime = downTime + (upTime - downTime) * (pageCnt - (double)(down->first)) / ((double)(up->first) - (double)(down->first));
+
+
+    return realTime;
 }
 
 double PipeProfiler::queryCom(int dataCnt, int split) {
@@ -132,24 +172,44 @@ double PipeProfiler::queryCom(int dataCnt, int split) {
     }
     
     auto up = coms->computeTimeDict.lower_bound(key);
-    FAISS_ASSERT(up != coms->computeTimeDict.begin());
-
-    if(up == coms->computeTimeDict.end()){
-        up--;
-    }
-    
-    
     auto down = up;
-    down --;
-
     bool found = false;
-    while (down != coms->computeTimeDict.begin()) {
-        if (down->first & 0xffffffff == split){
-            found = true;
-            break;
+    if(up == coms->computeTimeDict.begin()){
+        up++;
+        while(up != coms->computeTimeDict.end()){
+            int split_ = up->first & 0xffffffff;
+            if(split_ == split){
+                found = true;
+                break;
+            }
+            up++;
         }
+        if(!found){
+            printf("error1:%d\n",dataCnt);
+        }
+        FAISS_ASSERT(found);
     }
-    FAISS_ASSERT(found);
+    else{
+        if(up == coms->computeTimeDict.end()){
+            up--;
+        }
+        down = up;   
+
+        while (down != coms->computeTimeDict.begin()) {
+            down--;
+            int split_ = down->first & 0xffffffff;
+            if (split_ == split){
+                found = true;
+                break;
+            }
+        }
+        if(!found){
+            printf("error2:%d\n",dataCnt);
+        }
+        FAISS_ASSERT(found);
+    }
+    
+
 
     double upTime = up->second;
     double downTime = down->second;
@@ -173,10 +233,14 @@ void PipeProfiler::TranProfiler::train(){
     std::vector<int> pages;
     std::vector<double> perf; 
 
+    bool doubleone = false;
+
     while (i <= end){
-        pages.push_back(i);
+        if(doubleone || i!=1)
+            pages.push_back(i);
 
         auto t0 = timepoint();
+
 
         // allocate memory
         faiss::gpu::MemBlock mb = p->pgr_->allocMemory(i);
@@ -196,8 +260,9 @@ void PipeProfiler::TranProfiler::train(){
             p->pc_->addGlobalCount(clus, mb.pages[j], 1);
         }
 
-        auto t1 = timepoint();
-        perf.push_back(t1 - t0);
+        double totalTime = timepoint() - t0;
+
+        tranTimeDict[i] = totalTime;
         
         // Free these pages
         for (int j = 0; j < mb.pages.size(); j++){
@@ -207,20 +272,14 @@ void PipeProfiler::TranProfiler::train(){
             p->pgr_->freetree_->insert(mb.pages[j], mb.pages[j]);
         }
         
-        i = i << 1;
+        if(doubleone || i!=1){
+            i = i << 1;
+        }
+        else{
+            doubleone = true;
+        }
     }
 
-    // Fit with least square method
-    double t1 = 0, t2 = 0, t3 = 0, t4 = 0;  
-    for (i = 0; i < pages.size(); i++){  
-        t1 += pages[i] * pages[i];  
-        t2 += pages[i];  
-        t3 += pages[i] * perf[i];  
-        t4 += perf[i];  
-    }  
-    a = (t3 * pages.size() - t2 * t4) / (t1 * pages.size() - t2 * t2);  
-    // b = (t4 - a * t2) / pages.size();  
-    b = (t1 * t4 - t2 * t3) / (t1 * pages.size() - t2 * t2);
 
     istrained = true;
 }

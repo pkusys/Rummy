@@ -66,9 +66,31 @@ void test_profile(faiss::IndexIVFPipe* index){
     index->profile();
     char a[1]="";
     char b[100]="profileSave2.txt";
+    char c[100]="profileQuery.txt";
     index->saveProfile(a);
     index->loadProfile(a);
     index->saveProfile(b);
+
+
+
+    FILE * fp;
+
+    fp = fopen (c, "w+");
+
+    fprintf(fp, "{trans}\n");
+    for (int i = 1; i < index->pipe_cluster->bnlist; i++){
+        fprintf(fp, "%d %lf\n", i, index->profiler->queryTran(i));
+    }
+
+    fprintf(fp, "{coms}\n");
+    for (int i = 1; i < 2 * index->profiler->maxClus * 16; i++){
+        fprintf(fp, "%d %lf\n", i, index->profiler->queryCom(i, 1));
+    }
+
+    fprintf(fp,"{the-end}\n");
+
+    fclose(fp);
+
 
     index->verbose = false;
 
@@ -699,7 +721,7 @@ int main(int argc, char** argv) {
     size_t nt = 100 * 1000;
 
     // a reasonable number of centroids to index nb vectors
-    int ncentroids = 1024;
+    int ncentroids = 64;
 
     int dev_no = 0;
     

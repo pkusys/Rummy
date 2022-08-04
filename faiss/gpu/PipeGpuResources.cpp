@@ -473,7 +473,7 @@ void PipeGpuResources::memcpyh2d(int pageid){
 
     int cluid = pageinfo[pageid];
     FAISS_ASSERT(cluid >= 0);
-    size_t bytes = pc_->BCluSize[cluid];
+    size_t bytes = pc_->BCluSize[cluid] * sizeof(float) * pc_->d;
 
     // This is a sync version copy for profiler
     cudaMemcpy((void*)target , pc_->Mem[cluid], 

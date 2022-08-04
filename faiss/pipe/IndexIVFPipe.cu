@@ -130,6 +130,8 @@ IndexIVFPipe::IndexIVFPipe(
     direct_map = new DirectMap();
     invlists = new ArrayInvertedLists(nlist, code_size);
     pipe_cluster = nullptr;
+
+    profiler = nullptr;
 }
 
 

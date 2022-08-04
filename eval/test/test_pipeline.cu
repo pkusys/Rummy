@@ -110,7 +110,7 @@ void test_fake_scheduler(){
         bcluster_list[i] = i;
 
     std::vector<int> query_per_bcluster(cnt);
-    std::uniform_real_distribution<> distrib{0.0, 30.0};
+    std::uniform_real_distribution<> distrib{0.0, 200.0};
     std::random_device rd;
     std::default_random_engine rng {rd()};
     int maxval = 0;
@@ -153,7 +153,7 @@ void test_real_scheduler(){
     size_t nt = 100 * 1000;
 
     // a reasonable number of centroids to index nb vectors
-    int ncentroids = 1024;
+    int ncentroids = 32;
 
     int dev_no = 0;
     
@@ -191,7 +191,7 @@ void test_real_scheduler(){
     std::vector<float> queries;
         
     int i0 = 1234;
-    int i1 = 1234 + 128;
+    int i1 = 1234 + 512;
 
     nq = i1 - i0;
 
@@ -233,6 +233,7 @@ void test_real_scheduler(){
     faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, pipe_res, faiss::METRIC_L2);
     FAISS_ASSERT (config.interleavedLayout == true);
 
+    index->set_nprobe(16);
     index->train(nt, trainvecs);
     delete[] trainvecs;
 
@@ -285,13 +286,20 @@ void test_real_scheduler(){
                     &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
                     &bcluster_query_matrix);
+    
 
+    int total = 0;
+    for(int i=0;i<bcluster_cnt;i++){
+        total += query_per_bcluster[i];
+    }
+    printf("total:%d\n", total);
 
     printf("[%.3f s] Profiler starts.\n", elapsed() - t0);
 
     index->profile();
 
     printf("[%.3f s] Scheduler starts.\n", elapsed() - t0);
+
 
     t1 = elapsed();
     faiss::gpu::PipeScheduler psch(pc, pipe_res, bcluster_cnt, bcluster_list, 
@@ -308,7 +316,7 @@ void test_real_scheduler(){
     printf("Construct pipescheduler time: %.3f ms\n", (t2 - t1) * 1000);
 
 
-    psch.compute();
+    //psch.compute();
     
 }
 

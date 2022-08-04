@@ -441,6 +441,7 @@ struct IndexIVFPipe: Index {
                 memcpy (q + offset_x * (*maxquery_per_bcluster),
                         q + (offset_x - 1) * (*maxquery_per_bcluster),
                         sizeof(int) * (*maxquery_per_bcluster));
+                (*query_per_bcluster)[offset_x] = query_per_cluster_total[i];        
                 offset_x += 1;
             }
         }

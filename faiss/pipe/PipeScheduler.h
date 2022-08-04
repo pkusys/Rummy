@@ -63,6 +63,8 @@ public:
 
 public:
 
+    int canv;
+
     // the corresponding pipecluster
     PipeCluster* pc_;
 

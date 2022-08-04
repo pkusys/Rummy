@@ -43,7 +43,7 @@ struct PipeProfiler{
 
     double queryTran(int pageCnt);
 
-    double queryCom(int dataCnt, int split);
+    double queryCom(int dataCnt, int split = 1);
 
 protected:
     
@@ -52,6 +52,7 @@ protected:
 
         // Modeling: time = data (page or cluster) size * a + b
         double a, b;
+        std::map<int, double> tranTimeDict;
 
         bool istrained = false;
 
