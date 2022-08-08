@@ -77,6 +77,9 @@ public:
 
 public: // For convenient, may change the mode to public later
 // private
+    
+    // The minmal block number for a kernel launch
+    int Min_Block = -1;
 
     // Number of the clusters
     int nlist;

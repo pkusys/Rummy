@@ -394,7 +394,7 @@ void search_demo(
 
             faiss::gpu::PipeTensor<int, 2, true> out_indices({(int)n, (int)k}, pc);
             out_indices.setResources(pc, pipe_res);
-            out_indices.reserve();  
+            out_indices.reserve();
 
 
 

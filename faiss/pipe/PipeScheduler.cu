@@ -9,12 +9,17 @@
 #include <cmath>
 #include <sys/time.h>
 #include <iostream>
+#include <string.h>
 
 #include <faiss/pipe/PipeScheduler.h>
-#include <faiss/gpu/utils/PipeTensor.cuh>
+#include <faiss/gpu/impl/DistanceUtils.cuh>
 
 namespace faiss {
 namespace gpu{
+
+const int wait_interval = 5 * 1000; // 5 ms
+
+const int max_wait = 200 * 1000;
 
 double elapsed() {
     struct timeval tv;
@@ -22,41 +27,249 @@ double elapsed() {
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+struct Param{
+    PipeScheduler* sche;
+    IndexIVFPipe* index;
+    int clunum;
+    std::vector<int> group;
+    int k;
+};
+
 // Thread function: computation
 void *computation(void *arg){
+    Param* param = (Param *)arg;
+
+    // Destruct the param
+    PipeCluster* pc = param->sche->pc_;
+    PipeGpuResources* pgr = param->sche->pgr_;
+    int k = param->k;
+
+    // Handle the params
+    int *matrix;
+    int *queryIds;
+    auto shape = param->sche->genematrix(&matrix, &queryIds, param->group);
+
+    // Prepare the data
+    std::vector<void*> ListDataP_vec(param->clunum);
+    std::vector<void*> ListIndexP_vec(param->clunum);
+    std::vector<int> ListLength_vec(param->clunum);
+
+    // Noneed mutex here
+    for(int i = 0; i < param->clunum; i++) {
+        int cluid = param->group[i];
+        int pageid = pc->clu_page[cluid];
+        ListDataP_vec[i] = pgr->getPageAddress(pageid);
+        ListIndexP_vec[i] = (void *)((float*)(ListDataP_vec[i]) + 
+                pc->d * pc->BCluSize[cluid]);
+        ListLength_vec[i] = pc->BCluSize[cluid];
+    }
+
+    // Only one com thread is allowed in
+    pthread_mutex_lock(&(pc->com_mutex));
+    pthread_mutex_lock(&(pc->resource_mutex));
+    int idx = param->sche->com_index++;
+    param->sche->queries_ids[idx] = queryIds;
+    param->sche->queries_num[idx] = shape.first;
+    // param->sche->max_quries_num = std::max(param->sche->max_quries_num, shape.first)
+    auto exec_stream = pgr->getExecuteStream(0);
+
+    // Create the Tensors
+    for (int i = 0; i < shape.first; i++){
+        param->sche->cnt_per_query[queryIds[i]]++;
+        param->sche->max_split = std::max(param->sche->max_split, 
+            param->sche->cnt_per_query[queryIds[i]]);
+    }
+
+    param->sche->dis_buffer[idx] = 
+        new PipeTensor<float, 2, true>({(int)shape.first, (int)k}, pc);
+    param->sche->dis_buffer[idx]->setResources(pc, pgr);
+    param->sche->dis_buffer[idx]->reserve();
+
+    param->sche->ids_buffer[idx] = 
+        new PipeTensor<int, 2, true>({(int)shape.first, (int)k}, pc);
+    param->sche->ids_buffer[idx]->setResources(pc, pgr);
+    param->sche->ids_buffer[idx]->reserve();
+
+    PipeTensor<void*, 1, true>* ListDataP_ = 
+        new PipeTensor<void*, 1, true>({param->clunum}, pc);
+    ListDataP_->copyFrom(ListDataP_vec, exec_stream);
+    ListDataP_->setResources(pc, pgr);
+    ListDataP_->memh2d(exec_stream);
+
+    PipeTensor<void*, 1, true>*  ListIndexP_ =
+        new PipeTensor<void*, 1, true>({param->clunum}, pc);
+    ListIndexP_->copyFrom(ListIndexP_vec, exec_stream);
+    ListIndexP_->setResources(pc, pgr);
+    ListIndexP_->memh2d(exec_stream);
+
+    PipeTensor<int, 1, true>* ListLength_ = 
+        new PipeTensor<int, 1, true>({param->clunum}, pc);
+    ListLength_->copyFrom(ListLength_vec, exec_stream);
+    ListLength_->setResources(pc, pgr);
+    ListLength_->memh2d(exec_stream);
+
+    PipeTensor<int, 1, true>* queryids_gpu = 
+        new PipeTensor<int, 1, true>({(int)shape.first}, pc);
+    queryids_gpu->copyFrom(queryIds, exec_stream);
+    queryids_gpu->setResources(pc, pgr);
+    queryids_gpu->memh2d(exec_stream);
+
+    PipeTensor<int, 2, true>* query_cluster_matrix_gpu =
+        new PipeTensor<int, 2, true>({(int)shape.first, (int)shape.second}, pc);
+    query_cluster_matrix_gpu->copyFrom(matrix, exec_stream);
+    query_cluster_matrix_gpu->setResources(pc, pgr);
+    query_cluster_matrix_gpu->memh2d(exec_stream);
+
+    pthread_mutex_unlock(&(pc->resource_mutex));
+
+    int split = 1;
+    int cur_block_num = shape.first * shape.second;
+    // Find an appropriate split num
+    if (pc->Min_Block > 0){
+        while(cur_block_num * split < pc->Min_Block){
+            split = split << 1;
+        }
+    }
+
+    bool dir;
+    if (param->index->metric_type == MetricType::METRIC_L2) {
+        L2Distance metr;
+        dir = metr.kDirection;                                            
+    } else if (param->index->metric_type == MetricType::METRIC_INNER_PRODUCT) {
+        IPDistance metr;          
+        dir = metr.kDirection;
+    }
+
+    runKernelComputeReduce(
+            pc->d,
+            k,
+            shape.first,
+            shape.second,
+            *queryids_gpu,
+            *(param->sche->queries_gpu),
+            *query_cluster_matrix_gpu,
+            ListDataP_->devicedata(),
+            param->index->ivfPipeConfig_.indicesOptions,
+            ListLength_->devicedata(),
+            ListIndexP_->devicedata(),
+            param->index->metric_type,
+            dir,
+            *(param->sche->dis_buffer[idx]),
+            *(param->sche->ids_buffer[idx]),
+            pc,
+            pgr,
+            0,
+            split);
+    
+    cudaStreamSynchronize(exec_stream);
+
+    // Delete the allocated Tensor in order
+    delete query_cluster_matrix_gpu;
+    delete queryids_gpu;
+    delete ListLength_;
+    delete ListIndexP_;
+    delete ListDataP_;
+
+    pthread_mutex_unlock(&(pc->com_mutex));
+
+    // Change page info
+    pthread_mutex_lock(&(pc->resource_mutex));
+
+    for (int i = 0; i < param->clunum; i++){
+        int cluid = param->group[i];
+        int page = pc->clu_page[cluid];
+        pc->setComDevice(cluid, page, false);
+        int lrucnt = (param->sche->query_per_bcluster)[param->sche->reversemap[cluid]];
+        pc->addGlobalCount(cluid, page, lrucnt);
+    }
+
+    pthread_mutex_unlock(&(pc->resource_mutex));
+
     return((void *)0);
 }
 
-const int wait_interval = 5 * 1000; // 5 ms
-
-const int max_wait = 200 * 1000;
-
-PipeScheduler::PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
+PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
         int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
         int* bcluster_query_matrix_, PipeProfiler* profiler_,
         int queryMax_, int clusMax_, bool free_) 
-        : pc_(pc), pgr_(pgr), bcluster_cnt(bcluster_cnt_), profiler(profiler_),
+        : index_(index), pc_(pc), pgr_(pgr), bcluster_cnt(bcluster_cnt_), profiler(profiler_),
         bcluster_list(bcluster_list_), query_per_bcluster(query_per_bcluster_), \
         maxquery_per_bcluster(maxquery_per_bcluster_), \
         bcluster_query_matrix(bcluster_query_matrix_), free(free_),\
-        queryMax(queryMax_), clusMax(clusMax_), num_group(1){
+        queryMax(queryMax_), clusMax(clusMax_), num_group(-1){
             reorder_list.resize(bcluster_cnt);
 
             reorder();
 
             group();
 
+            FAISS_ASSERT(num_group > 0);
             // Initialize the computation threads
             pc_->com_threads.resize(num_group);
 
         }
 
+PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
+            int n, float *xq, int k, float *dis, int *label, bool free_)
+            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler) {
+
+                int actual_nprobe;
+                int maxbcluster_per_query;
+                auto t0 = elapsed();
+                index->sample_list(n, xq, &coarse_dis, &ori_idx,\
+                    &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
+                    &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
+                    &bcluster_query_matrix);
+                auto t1 = elapsed();
+                printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
+                t0 = t1;
+                
+                reorder_list.resize(bcluster_cnt);
+
+                reorder();
+                t1 = elapsed();
+                printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
+                t0 = t1;
+
+                group();
+                t1 = elapsed();
+                printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
+                t0 = t1;
+
+                // deubg
+                printf("---Demo group----\n");
+                for(int i = 0; i < groups.size(); i++){
+                    printf("%d ", groups[i]);
+                }
+                printf("\n");
+
+                FAISS_ASSERT(num_group > 0);
+                // Initialize the computation threads
+                pc_->com_threads.resize(num_group);
+
+                process(n, xq, k, dis, label);
+
+                t1 = elapsed();
+                printf("Process Time: %.3f ms\n", (t1 - t0)*1000);
+                t0 = t1;
+                
+            }
+
 PipeScheduler::~PipeScheduler(){
     // Free the input resource
     if(free){
+        delete[] coarse_dis;
+        delete[] ori_idx;
+        delete[] bcluster_per_query;
+        delete[] query_bcluster_matrix;
+
         delete[] bcluster_list;
         delete[] query_per_bcluster;
         delete[] bcluster_query_matrix;
+    }
+
+    if (queries_gpu != nullptr){
+        delete queries_gpu;
     }
 
     // Free the PipeTensor in order
@@ -115,10 +328,20 @@ void PipeScheduler::reorder(){
 
     part_size = index;
 
+    grain = (bcluster_cnt - part_size) / 16;
+
+    grain = (grain == 0 ? 1 : grain);
+
+    // grain = 2;
+
+    printf("debug out reorder: %d %d\n", reorder_list.size(), grain);
+
 }
 
 void PipeScheduler::group(){
     canv = 0;
+
+    FAISS_ASSERT(grain > 0);
 
     pipelinegroup opt;
 
@@ -144,7 +367,7 @@ void PipeScheduler::group(){
     int n = reorder_list.size();
 
     // prune 1
-    for (int i = part_size + 1; i <= n; i++){
+    for (int i = part_size + 1; i <= n; i+=1){
         float trantime = measure_tran(i - part_size);
         if (trantime < delay)
             f1 = i;
@@ -154,7 +377,7 @@ void PipeScheduler::group(){
             break;
     }
 
-    for (int i = f1; i <= n; i++){
+    for (int i = f1; i <= n; i+=grain){
         if (i - part_size > max_size)
             break;
         // prune 2
@@ -202,12 +425,16 @@ void PipeScheduler::group(){
 
     num_group = groups.size();
 
+    if (groups[num_group - 1] != n)
+        groups[num_group - 1] = n;
+
 }
 
 PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float delay, int depth){
     pipelinegroup opt;
     int n = reorder_list.size();
-    if (staclu == n){
+    int f1 = staclu + grain;
+    if (f1 > n){
         opt.time = total;
         opt.delay = delay;
         
@@ -218,10 +445,9 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
         }
         return opt;
     }
-    int f1 = staclu + 1;
 
     // prune 1
-    for (int i = staclu + 1; i <= n; i++){
+    for (int i = staclu + grain; i <= n; i+=1){
         float trantime = measure_tran(i - staclu);
         if (trantime < delay)
             f1 = i;
@@ -231,7 +457,7 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
             break;
     }
 
-    for (int i = f1; i <= n; i++){
+    for (int i = f1; i <= n; i+=grain){
         if (i - staclu > max_size)
             break;
         // prune 2
@@ -292,7 +518,29 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
 
 }
 
-void PipeScheduler::process(int k, float *dis, int *label){
+void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
+
+    queryMax = n;
+
+    // Create queries Tensor
+    this->queries_gpu = new PipeTensor<float, 2, true>({n, this->pc_->d}, pc_);
+    queries_gpu->copyFrom((float*)xq, pgr_->getExecuteStream(0));
+    queries_gpu->setResources(pc_, pgr_);
+    queries_gpu->memh2d(pgr_->getExecuteStream(0));
+
+    // Initialize the buffer
+    dis_buffer.resize(num_group);
+    ids_buffer.resize(num_group);
+    queries_ids.resize(num_group);
+    queries_num.resize(num_group);
+    cnt_per_query.resize(n);
+    std::fill(cnt_per_query.data(), cnt_per_query.data() + n, 0);
+
+    for (int i = 0 ; i < num_group; i++){
+        int sta = (i == 0 ? 0 : groups[i-1]);
+        int end = groups[i];
+    }
+
     // pined the future pages
     for (int i = 0; i < reorder_list.size(); i++){
         int c = reorder_list[i];
@@ -303,6 +551,7 @@ void PipeScheduler::process(int k, float *dis, int *label){
             pc_->setPinnedonDevice(c, page, true);
         }
     }
+    std::vector<Param> params(num_group);
     // loop over groups
     for (int i = 0 ; i < num_group; i++){
         int sta = (i == 0 ? 0 : groups[i-1]);
@@ -337,7 +586,7 @@ void PipeScheduler::process(int k, float *dis, int *label){
             int wait_time = 0;
             while (true){
                 pthread_mutex_lock(&(pc_->resource_mutex));
-                faiss::gpu::MemBlock mb = pgr_->allocMemory(num);
+                MemBlock mb = pgr_->allocMemory(num);
 
                 if (mb.valid){
                     for (int j = 0; j < num; j++){
@@ -345,13 +594,14 @@ void PipeScheduler::process(int k, float *dis, int *label){
                         pgr_->pageinfo[mb.pages[j]] = clus;
                         pc_->setonDevice(clus, mb.pages[j], true);
                         pc_->setComDevice(clus, mb.pages[j], true);
-                        // Memory transfer
-                        // Use default stream here (no need to manually sync)
-                        pgr_->memcpyh2d(mb.pages[j]);
-
+                        pc_->clu_page[clus] = mb.pages[j];
                         // p->pc_->addGlobalCount(clus, mb.pages[j], 1);
                     }
                     pthread_mutex_unlock(&(pc_->resource_mutex));
+                    // Memory transfer
+                    // Use default stream here (no need to manually sync)
+                    for (int j = 0; j < num; j++)
+                        pgr_->memcpyh2d(mb.pages[j]);
                     break;
                 }
                 else{
@@ -362,6 +612,9 @@ void PipeScheduler::process(int k, float *dis, int *label){
                             if (che){
                                 bool chep = pc_->readPinnedonDevice(j);
                                 if (chep){
+                                    bool checom = pc_->readComDevice(j);
+                                    if (checom)
+                                        continue;
                                     int page = pc_->clu_page[j];
                                     FAISS_ASSERT(page >= 0);
                                     pc_->setPinnedonDevice(j, page, false);
@@ -380,9 +633,126 @@ void PipeScheduler::process(int k, float *dis, int *label){
         }
 
         // Start computation
-        pthread_create(&(pc_->com_threads[i]), NULL, computation, this);
+        Param *param = &(params[i]);
+        param->sche = this;
+        param->clunum = end - sta;
+        param->group = clusters;
+        param->k = k;
+        param->index = this->index_;
+
+        pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
 
     }
+    for (int i = 0 ; i < num_group; i++){
+        int res = pthread_join(pc_->com_threads[i], NULL);
+        FAISS_ASSERT(res == 0);
+    }
+
+    // Check all exec threads
+    FAISS_ASSERT(com_index == num_group);
+
+    // Start Merge
+    auto exec_stream = pgr_->getExecuteStream(0);
+    PipeTensor<int, 1, true> *cnt_per_query_gpu = 
+        new PipeTensor<int, 1, true>({(int)n}, this->pc_);
+    cnt_per_query_gpu->copyFrom(cnt_per_query, exec_stream);
+    cnt_per_query_gpu->setResources(pc_, pgr_);
+    cnt_per_query_gpu->memh2d(exec_stream);
+
+    std::vector<float*> result_distances(n * max_split);
+    std::vector<int*> result_indices(n * max_split);
+    std::vector<int> query_index(n);
+    std::fill(query_index.data(), query_index.data() + n, 0);
+
+    for (int i = 0; i < num_group; i++){
+        int num = queries_num[i];
+        for (int j = 0; j < num; j++){
+            int qid = queries_ids[i][j];
+            result_distances[qid * max_split + query_index[qid]] = 
+                (*(dis_buffer[i]))(j).data();
+            result_indices[qid * max_split + query_index[qid]] = 
+                (*(ids_buffer[i]))(j).data();
+            query_index[qid]++;
+        }
+    }
+
+    PipeTensor<int*, 2, true>* result_indices_gpu = 
+        new PipeTensor<int*, 2, true>({(int)n, max_split}, pc_);
+    result_indices_gpu->copyFrom(result_indices, exec_stream);
+    result_indices_gpu->setResources(pc_, pgr_);
+    result_indices_gpu->memh2d(exec_stream);
+
+    PipeTensor<float*, 2, true>* result_distances_gpu =
+        new PipeTensor<float*, 2, true>({(int)n, max_split}, pc_);
+    result_distances_gpu->copyFrom(result_distances, exec_stream);
+    result_distances_gpu->setResources(pc_, pgr_);
+    result_distances_gpu->memh2d(exec_stream);
+
+    bool dir;
+    if (index_->metric_type == MetricType::METRIC_L2) {
+        L2Distance metr;
+        dir = metr.kDirection;                                            
+    } else if (index_->metric_type == MetricType::METRIC_INNER_PRODUCT) {
+        IPDistance metr;          
+        dir = metr.kDirection;
+    }
+    else{
+        FAISS_ASSERT (false);
+    }
+
+    PipeTensor<float, 2, true>* out_distances = 
+        new PipeTensor<float, 2, true>({(int)n, (int)k}, pc_);
+    out_distances->setResources(pc_, pgr_);
+    out_distances->reserve();                
+
+    PipeTensor<int, 2, true> *out_indices = 
+        new PipeTensor<int, 2, true>({(int)n, (int)k}, pc_);
+    out_indices->setResources(pc_, pgr_);
+    out_indices->reserve();
+
+    runKernelMerge(
+        *cnt_per_query_gpu,
+        *result_distances_gpu,
+        *result_indices_gpu,
+        k,
+        index_->ivfPipeConfig_.indicesOptions,
+        dir,
+        *out_distances,
+        *out_indices,
+        exec_stream);
+
+    cudaStreamSynchronize(exec_stream);
+
+    auto cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess){
+        FAISS_THROW_FMT("Kernel launch and process failed: %s\n", 
+            cudaGetErrorString(cudaStatus));
+    }
+
+    auto d2h_stream = pgr_->getCopyD2HStream(0);
+    out_distances->memd2h(d2h_stream);
+    out_indices->memd2h(d2h_stream);
+    cudaStreamSynchronize(d2h_stream);
+
+    int bytes = n * k * sizeof(float);
+
+    memcpy(dis, out_distances->hostdata(), bytes);
+    memcpy(label, out_indices->hostdata(), bytes);
+
+    // Delete Tensors
+    delete out_indices;
+    delete out_distances;
+    delete result_distances_gpu;
+    delete result_indices_gpu;
+    delete cnt_per_query_gpu;
+
+    for (int i = num_group - 1; i >= 0; i--){
+        delete ids_buffer[i];
+        delete dis_buffer[i];
+    }
+
+    return;
+
 }
 
 float PipeScheduler::measure_tran(int num){
@@ -414,6 +784,24 @@ float PipeScheduler::measure_com(int sta, int end){
         return 0.0002 * (double)dataCnt + .02;
     }
 
+}
+
+// Remember to delete queryClusMat & queryIds to avoid memory leak !!!
+std::pair<int, int> PipeScheduler::genematrix(int **queryClusMat, int **queryIds, 
+        const std::vector<int> & group){
+    int groupSize = group.size();
+
+    int maxqueryNum = maxquery_per_bcluster;
+    int clusMax = pc_->bnlist;
+    std::vector<int> rows(groupSize);
+    for (int i = 0; i < groupSize; i++)
+        rows[i] = reversemap[group[i]];
+    FAISS_ASSERT(maxqueryNum > 0);
+
+    transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
+        queryMax, clusMax, rows, bcluster_list, queryIds);
+
+    return std::pair<int,int>(maxqueryNum, groupSize);
 }
 
 
@@ -456,7 +844,7 @@ void PipeScheduler::compute(){
     
 }
 
-
+// clu * query , 
 void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
 
     int oriClus = *clus;
@@ -492,13 +880,12 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     for (int i = 0; i < oriClus; i++) {
         int clusRow = rows[i];
         int rank = omp_get_thread_num();
-        int clus = clusIds[clusRow];
         for (int j = 0; j < oriQuery; j++) {
             int query = clusQueryMat[oriQuery * clusRow + j];
             if (query == -1) {
                 continue;
             }
-            queryClusMatSlave[rank][query * clusMax + clusPerQuerySlave[rank][query]] = clus;
+            queryClusMatSlave[rank][query * clusMax + clusPerQuerySlave[rank][query]] = i;
             clusPerQuerySlave[rank][query] += 1;
         }
 

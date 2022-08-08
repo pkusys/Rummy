@@ -37,9 +37,9 @@ struct PipeProfiler{
 
     void train();
 
-    void save(char* path);
+    void save(const char* path);
 
-    void load(char* path);
+    void load(const char* path);
 
     double queryTran(int pageCnt);
 

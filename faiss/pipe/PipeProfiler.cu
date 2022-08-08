@@ -41,7 +41,7 @@ void PipeProfiler::train(){
     istrained = true;
 }
 
-void PipeProfiler::save(char* path_){
+void PipeProfiler::save(const char* path_){
     char path[100];
     if(strcmp(path_, "") == 0 ){
         strcpy(path, "profileSave.txt");
@@ -72,7 +72,8 @@ void PipeProfiler::save(char* path_){
 
 }
 
-void PipeProfiler::load(char* path_){
+void PipeProfiler::load(const char* path_){
+
     char path[100];
     char buffer[100];
     if(strcmp(path_, "") == 0 ){
@@ -88,36 +89,40 @@ void PipeProfiler::load(char* path_){
 
     fp = fopen (path, "r");
     fscanf(fp, "%s", buffer);
-    //printf("loading profiler starts.\n");
-    printf("%s\n",buffer);
+    // printf("loading profiler starts.\n");
+    // printf("%s\n",buffer);
 
     while(true){
         int key;
         double value;
         fscanf(fp, "%d %lf", &key, &value);
-        //printf("%d %lf\n", key, value);
+        // printf("%d %lf\n", key, value);
         if(key == 0){
             break;
         }
         trans->tranTimeDict[key] = value;
     }        
     fscanf(fp, "%s", buffer);
-    //printf("%s\n", buffer);
+    // printf("%s\n", buffer);
 
     while(true){
         unsigned long key;
         double value;
         fscanf(fp, "%zu %lf", &key, &value);
-        //printf("%zu %lf\n", key, value);
+        // printf("%zu %lf\n", key, value);
         if(key == 0){
             break;
         }
         coms->computeTimeDict[key] = value;
-    }        
+    }
     
     fscanf(fp, "%s", buffer);
-    //printf("%s\n", buffer);
+    // printf("%s\n", buffer);
     fclose(fp);
+
+    trans->istrained = true;
+    coms->istrained = true;
+    istrained = true;
 
     return;
 }

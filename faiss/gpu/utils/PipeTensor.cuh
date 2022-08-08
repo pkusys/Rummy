@@ -13,6 +13,7 @@
 #include <initializer_list>
 #include <vector>
 
+#include <faiss/gpu/GpuFaissAssert.h>
 #include <faiss/pipe/PipeCluster.h>
 #include <faiss/gpu/PipeGpuResources.h>
 

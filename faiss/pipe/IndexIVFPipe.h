@@ -587,9 +587,9 @@ struct IndexIVFPipe: Index {
 
     void set_nprobe(size_t nprobe_);
 
-    void saveProfile(char* path);
+    void saveProfile(const char* path);
 
-    void loadProfile(char* path);
+    void loadProfile(const char* path);
 
 };
 

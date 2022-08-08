@@ -18,6 +18,7 @@
 #include <faiss/pipe/PipeCluster.h>
 #include <faiss/pipe/PipeStructure.h>
 #include <faiss/pipe/PipeProfiler.cuh>
+#include <faiss/pipe/IndexIVFPipe.h>
 
 namespace faiss{
 namespace gpu{
@@ -39,10 +40,13 @@ protected:
 
 public:
     // construct function
-    PipeScheduler(PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
+    PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
             int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
             int* bcluster_query_matrix_, PipeProfiler* profiler_,
             int queryMax_, int clusMax_, bool free_ = true);
+
+    PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
+            int n, float *xq, int k, float *dis, int *label, bool free_ = true);
 
     ~PipeScheduler();
 
@@ -55,7 +59,7 @@ public:
     pipelinegroup group(int staclu, float total, float delay, int depth);
 
     // enter multi-threads
-    void process(int k, float *dis, int *label);
+    void process(int num, float *xq, int k, float *dis, int *label);
 
     // Mesure the tran and com time for the number of clusters (ms)
     float measure_tran(int num);
@@ -64,15 +68,23 @@ public:
 
     void compute();
 
+    std::pair<int, int> genematrix(int **queryClusMat, int **queryIds, 
+        const std::vector<int> & group );
+
 public:
 
     int canv;
+
+    int grain = -1;
 
     // the corresponding pipecluster
     PipeCluster* pc_;
 
     // the corresponding PipeGpurespurce
     PipeGpuResources* pgr_;
+
+    // The corresponding index
+    IndexIVFPipe* index_;
 
     // if free the sample params
     bool free;
@@ -82,6 +94,12 @@ public:
 
     // the total number of clusters the index keeps
     int clusMax;
+
+    // Extra varibles to delete in deconstruct function
+    float* coarse_dis;
+    int* ori_idx;
+    int* bcluster_per_query;
+    int* query_bcluster_matrix;
 
     // the number of balanced clusters concerning
     int bcluster_cnt;
@@ -117,6 +135,25 @@ public:
     std::vector<int> groups;
 
     PipeProfiler* profiler;
+
+    PipeTensor<float, 2, true> *queries_gpu = nullptr;
+
+    std::vector<PipeTensor<float, 2, true>* > dis_buffer;
+
+    std::vector<PipeTensor<int, 2, true>* > ids_buffer;
+
+    // Group queries idx
+    std::vector<int *> queries_ids;
+
+    std::vector<int> queries_num;
+
+    std::vector<int> cnt_per_query;
+
+    int max_split = -1;
+
+    // int max_quries_num = -1;
+
+    int com_index = 0;
 
 };
 

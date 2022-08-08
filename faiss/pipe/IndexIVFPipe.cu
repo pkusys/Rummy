@@ -131,7 +131,8 @@ IndexIVFPipe::IndexIVFPipe(
     invlists = new ArrayInvertedLists(nlist, code_size);
     pipe_cluster = nullptr;
 
-    profiler = nullptr;
+    // profiler = nullptr;
+    profiler = new gpu::PipeProfiler(this);
 }
 
 
@@ -272,7 +273,7 @@ void IndexIVFPipe::addPage_(int n, const float* x, idx_t* coarse_ids) {
 
     // but keep the ntotal based on the total number of vectors that we
     // attempted to add
-    ntotal += n;
+    // ntotal += n;
 
 
 }
@@ -795,8 +796,6 @@ void IndexIVFPipe::profile() {
     if(verbose)
         printf("start profile\n");
 
-    profiler = new gpu::PipeProfiler(this);
-
     profiler-> train();
 
     double t1 = timepoint();
@@ -805,11 +804,11 @@ void IndexIVFPipe::profile() {
 
 }
 
-void IndexIVFPipe::saveProfile(char* path){
+void IndexIVFPipe::saveProfile(const char* path){
     profiler->save(path);
 }
 
-void IndexIVFPipe::loadProfile(char* path){
+void IndexIVFPipe::loadProfile(const char* path){
     profiler->load(path);
 }
 

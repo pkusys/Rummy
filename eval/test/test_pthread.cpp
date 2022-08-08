@@ -29,6 +29,10 @@ void *print_msg(void *arg)
 
 int main(int argc,char** argv)
 {  
+    int a;
+    void * p = &a;
+    printf("%p\n", p);
+    printf("%p\n", (void *) ((float *)p + 1) );
     int num1 = 1;
     int num2 = 2;
     std::vector<pthread_t> vec;

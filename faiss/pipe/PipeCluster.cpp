@@ -98,6 +98,10 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
 
     pthread_mutex_init(&com_mutex, 0);
 
+#if CUDA_VERSION >= 11000
+    Min_Block = 1024;
+#endif
+
 }
 
 PipeCluster::~PipeCluster(){
@@ -338,11 +342,18 @@ void PipeCluster::freeMem(){
                     "Failed to free pinned memory (error %d %s)",
                     (int)error,
                     cudaGetErrorString(error));
+            error = cudaFreeHost(Balan_ids[i]);
+            FAISS_ASSERT_FMT(
+                    error == cudaSuccess,
+                    "Failed to free pinned index memory (error %d %s)",
+                    (int)error,
+                    cudaGetErrorString(error));
         }
     }
     else{
         for (int i = 0; i < Mem.size(); i++){
             free(Mem[i]);
+            free(Balan_ids[i]);
         }
     }
 }
@@ -363,13 +374,12 @@ void PipeCluster::setPinnedonDevice(int id, int page_id, bool b, bool avl){
 void PipeCluster::setComDevice(int id, int page_id, bool b, bool avl){
     // Set the status
     isComDevice[id] = b;
-    if (avl){
-        if (b){
-            LRUtree_->remove(readGlobalCount(id), page_id);
-        }
-        else{
-            LRUtree_->insert(readGlobalCount(id), page_id);
-        }
+    bool ispined = readPinnedonDevice(id);
+    if (b && !ispined){
+        setPinnedonDevice(id, page_id, b, avl);
+    }
+    else if (!b && ispined){
+        setPinnedonDevice(id, page_id, b, avl);
     }
 }
 
