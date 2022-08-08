@@ -222,11 +222,23 @@ int main(){
             pc, pipe_res, bs, xq, topk, dis.data(), idx.data());
     auto tt1 = elapsed();
     printf("Search Time: %.3f ms\n", (tt1 - tt0)*1000);
-    
     delete sche;
 
     for (int i = 0; i < topk; i++){
         printf("%d %d: %f %f\n", idx[i + topk * 128], gt[i + 100 * 128], dis[i + topk * 128], gtd[i + 100 * 128]);
+    }
+
+    tt0 = elapsed();
+
+    sche = new faiss::gpu::PipeScheduler(index, 
+            pc, pipe_res, bs, xq + d * bs, topk, dis.data(), idx.data());
+    tt1 = elapsed();
+    printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
+    
+    delete sche;
+
+    for (int i = 0; i < topk; i++){
+        printf("%d %d: %f %f\n", idx[i], gt[i + 100 * bs], dis[i], gtd[i + 100 * bs]);
     }
 
 

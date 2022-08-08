@@ -332,7 +332,7 @@ void PipeScheduler::reorder(){
 
     grain = (grain == 0 ? 1 : grain);
 
-    // grain = 2;
+    // grain = 1;
 
     printf("debug out reorder: %d %d\n", reorder_list.size(), grain);
 
@@ -345,12 +345,14 @@ void PipeScheduler::group(){
 
     pipelinegroup opt;
 
+    int n = reorder_list.size();
+
     // The 4 here is hyperparamter
     // Each group size can not overstep this value
     if (pgr_)
         max_size = pgr_->pageNum_ - part_size + part_size / 4;
     else
-        max_size = reorder_list.size() - part_size + part_size / 4;
+        max_size = n - part_size + part_size / 4;
 
     if (part_size != 0) {
         if (part_size / 4 == part_size){
@@ -362,9 +364,15 @@ void PipeScheduler::group(){
         }
     }
 
+    //Check if all clusters are resident on device
+    int temp = groups.size();
+    if (temp > 0 && groups[temp - 1] == n){
+        num_group = temp;
+        return;
+    }
+
     float delay = measure_com(part_size/4, part_size);
     int f1 = 1;
-    int n = reorder_list.size();
 
     // prune 1
     for (int i = part_size + 1; i <= n; i+=1){
