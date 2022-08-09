@@ -322,6 +322,7 @@ struct IndexIVFPipe: Index {
     // to eliminate the data dependence of the loop from line 348-365, 
     // we allocate nthread buffer to save them saparately.
     int nthread = omp_get_max_threads();
+    // printf("debug : Sample threads %d\n", nthread);
     int* clusters_query_matrix = (int*)malloc(nlist * nthread * n * sizeof(int));
     int* query_per_cluster = (int*)malloc(nthread * nlist * sizeof(int));
     

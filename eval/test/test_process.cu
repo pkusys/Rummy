@@ -104,7 +104,7 @@ int main(){
 
     int dim = 128;
     int dev_no = 0;
-    int ncentroids = 64;
+    int ncentroids = 64 * 4;
     faiss::gpu::StandardGpuResources resources;
 
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
@@ -225,20 +225,23 @@ int main(){
     delete sche;
 
     for (int i = 0; i < topk; i++){
-        printf("%d %d: %f %f\n", idx[i + topk * 128], gt[i + 100 * 128], dis[i + topk * 128], gtd[i + 100 * 128]);
+        printf("%d %ld: %f %f\n", idx[i + topk * 128], gt[i + 100 * 128], dis[i + topk * 128], gtd[i + 100 * 128]);
     }
 
+
+    printf("\n--- Next Batch ---\n");
+    index->set_nprobe(ncentroids / 8);
     tt0 = elapsed();
 
     sche = new faiss::gpu::PipeScheduler(index, 
-            pc, pipe_res, bs, xq + d * bs, topk, dis.data(), idx.data());
+            pc, pipe_res, 8, xq + d * bs, topk, dis.data(), idx.data());
     tt1 = elapsed();
     printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
     
     delete sche;
 
     for (int i = 0; i < topk; i++){
-        printf("%d %d: %f %f\n", idx[i], gt[i + 100 * bs], dis[i], gtd[i + 100 * bs]);
+        printf("%d %ld: %f %f\n", idx[i], gt[i + 100 * bs], dis[i], gtd[i + 100 * bs]);
     }
 
 

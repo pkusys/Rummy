@@ -47,7 +47,9 @@ void *computation(void *arg){
     // Handle the params
     int *matrix;
     int *queryIds;
+    auto t0 = elapsed();
     auto shape = param->sche->genematrix(&matrix, &queryIds, param->group);
+    printf("debug : tranpose time %.3f\n", (elapsed() - t0)*1000);
 
     // Prepare the data
     std::vector<void*> ListDataP_vec(param->clunum);
@@ -328,7 +330,7 @@ void PipeScheduler::reorder(){
 
     part_size = index;
 
-    grain = (bcluster_cnt - part_size) / 16;
+    grain = (bcluster_cnt - part_size) / 8;
 
     grain = (grain == 0 ? 1 : grain);
 
@@ -854,7 +856,7 @@ void PipeScheduler::compute(){
 
 // clu * query , 
 void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
-
+    omp_set_num_threads(8);
     int oriClus = *clus;
     int oriQuery = *query;
     int afterClus = 0;
@@ -867,8 +869,8 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     std::vector<std::vector<int>> queryClus;
     queryClus.resize(queryMax);
 
-    omp_set_num_threads(8);
     int nt = omp_get_max_threads();
+    // printf("debug tranpose threads: %d\n", nt);
 
     int** clusPerQuerySlave = new int*[nt];
     int** SlaveOffset = new int*[nt];

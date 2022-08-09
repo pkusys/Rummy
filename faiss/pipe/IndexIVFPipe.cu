@@ -131,8 +131,7 @@ IndexIVFPipe::IndexIVFPipe(
     invlists = new ArrayInvertedLists(nlist, code_size);
     pipe_cluster = nullptr;
 
-    // profiler = nullptr;
-    profiler = new gpu::PipeProfiler(this);
+    profiler = nullptr;
 }
 
 
@@ -792,6 +791,7 @@ void IndexIVFPipe::set_nprobe(size_t nprobe_) {
 }
 
 void IndexIVFPipe::profile() {
+    profiler = new gpu::PipeProfiler(this);
     double t0 = timepoint();
     if(verbose)
         printf("start profile\n");
@@ -809,6 +809,7 @@ void IndexIVFPipe::saveProfile(const char* path){
 }
 
 void IndexIVFPipe::loadProfile(const char* path){
+    profiler = new gpu::PipeProfiler(this);
     profiler->load(path);
 }
 

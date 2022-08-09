@@ -26,7 +26,7 @@ namespace {
 constexpr size_t kTempMem = (size_t)256 * 1024 * 1024;
 
 // Default Max Device memory allocation (15Gib)
-constexpr size_t kMaxDeviceMem = (size_t)15 * 1024 * 1024 * 1024ll;
+constexpr size_t kMaxDeviceMem = (size_t)4 * 1024 * 1024 * 1024ll;
 
 // Default page size allocation (1 MB)
 constexpr size_t kPagesize = (size_t)1 * 1024 * 1024;
