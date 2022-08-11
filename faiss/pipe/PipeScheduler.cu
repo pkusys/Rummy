@@ -951,5 +951,68 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
 }
 
 
+
+void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
+
+
+    int oriClus = *clus;
+    int oriQuery = *query;
+    int afterClus = 0;
+    int afterQuery = 0;
+
+    int* clusPerQuery = new int[queryMax];
+    *queryIds = new int[queryMax];
+
+    std::fill(clusPerQuery, clusPerQuery + queryMax, 0);
+    int* queryClus = new int[queryMax * clusMax];
+
+    
+    for (int i = 0; i < oriClus; i++) {
+        int clusRow = rows[i];
+        int clus = clusIds[clusRow];
+
+        for (int j = 0; j < oriQuery; j++) {
+            int query = clusQueryMat[oriQuery * clusRow + j];
+            if (query == -1) {
+                continue;
+            }
+            queryClus[query * clusMax + clusPerQuery[query]] = clus;
+            clusPerQuery[query] += 1;
+        }
+
+    }
+
+
+
+    for (int i = 0; i < queryMax; i++){
+        if (clusPerQuery[i] != 0) {
+            afterClus = std::max(afterClus, clusPerQuery[i]);
+            (*queryIds)[afterQuery] = i;
+            afterQuery ++;
+        }
+    }
+
+
+    *queryClusMat = new int[afterQuery * afterClus];
+    std::fill(*queryClusMat, (*queryClusMat) + afterQuery * afterClus, -1 );
+
+    
+    for (int i = 0; i < afterQuery ; i++) {
+        int queryId = (*queryIds)[i];
+        memcpy(*queryClusMat + afterClus * i, queryClus + queryId * clusMax, sizeof(int) * clusPerQuery[queryId]);
+    }
+
+    *clus = afterClus;
+    *query = afterQuery;
+
+    delete[] queryClus;
+
+    delete[] clusPerQuery;
+
+    return;
+
+}
+
+
 } // namespace gpu
 } // namespace faiss
