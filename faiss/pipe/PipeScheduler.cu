@@ -891,8 +891,6 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     *queryIds = new int[queryMax];
 
     std::fill(clusPerQuery, clusPerQuery + queryMax, 0);
-    std::vector<std::vector<int>> queryClus;
-    queryClus.resize(queryMax);
 
     int nt = omp_get_max_threads();
     // printf("debug tranpose threads: %d\n", nt);
@@ -952,6 +950,22 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
 
     *clus = afterClus;
     *query = afterQuery;
+
+#pragma omp parallel for
+    for (int i = 0; i < nt; i++){
+        delete[] clusPerQuerySlave[i];
+        delete[] queryClusMatSlave[i];
+        delete[] SlaveOffset[i];
+    }
+
+
+    delete[] clusPerQuerySlave;
+    delete[] SlaveOffset;
+    delete[] queryClusMatSlave;
+
+    delete[] clusPerQuery;
+
+
     return;
 
 }
