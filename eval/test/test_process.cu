@@ -227,7 +227,7 @@ int main(){
     tt0 = elapsed();
 
     sche = new faiss::gpu::PipeScheduler(index, 
-            pc, pipe_res, 1, xq + d * bs, topk, dis.data(), idx.data());
+            pc, pipe_res, 8, xq + d * bs, topk, dis.data(), idx.data());
     tt1 = elapsed();
     printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
     printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 

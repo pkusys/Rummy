@@ -89,6 +89,12 @@ public:
     // if free the sample params
     bool free;
 
+    // If the first serch
+    bool cold_start;
+
+    // The size of the current batch queries
+    int batch_size = -1;
+
     // the total number of query to compute
     int queryMax;
 
@@ -125,6 +131,11 @@ public:
 
     // reverse map of bcluster_list
     std::unordered_map<int, int> reversemap;
+
+    // mutex for copy engine preemption
+    pthread_mutex_t preemption_mutex;
+
+    bool preemption = true;
 
     // the group number
     int num_group;

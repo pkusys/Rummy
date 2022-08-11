@@ -95,6 +95,10 @@ void *computation(void *arg){
     param->sche->ids_buffer[idx]->setResources(pc, pgr);
     param->sche->ids_buffer[idx]->reserve();
 
+    // pthread_mutex_lock(&(param->sche->preemption_mutex));
+    // param->sche->preemption = false;
+    // pthread_mutex_unlock(&(param->sche->preemption_mutex));
+
     PipeTensor<void*, 1, true>* ListDataP_ = 
         new PipeTensor<void*, 1, true>({param->clunum}, pc);
     ListDataP_->copyFrom(ListDataP_vec, exec_stream);
@@ -125,8 +129,13 @@ void *computation(void *arg){
     query_cluster_matrix_gpu->setResources(pc, pgr);
     query_cluster_matrix_gpu->memh2d(exec_stream);
 
+    // pthread_mutex_lock(&(param->sche->preemption_mutex));
+    // param->sche->preemption = true;
+    // pthread_mutex_unlock(&(param->sche->preemption_mutex));
+
     tt = elapsed();
-    compu_time += tt - t;
+    printf("debug : Tensor time %.3f\n", (tt - t)*1000);
+    // compu_time += tt - t;
 
     pthread_mutex_unlock(&(pc->resource_mutex));
     t = elapsed();
@@ -228,7 +237,9 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
 
 PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label, bool free_)
-            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler) {
+            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n) {
+
+                pthread_mutex_init(&preemption_mutex, 0);
 
                 int actual_nprobe;
                 int maxbcluster_per_query;
@@ -289,6 +300,8 @@ PipeScheduler::~PipeScheduler(){
         delete queries_gpu;
     }
 
+    pthread_mutex_destroy(&preemption_mutex);
+
     // Free the PipeTensor in order
 }
 
@@ -345,13 +358,20 @@ void PipeScheduler::reorder(){
 
     part_size = index;
 
-    grain = (bcluster_cnt - part_size) / 8;
+    int slice = 8;
+
+    if (batch_size > 0 && batch_size >= 128)
+        slice = 8;
+    else if (batch_size > 0)
+        slice = 4;
+
+    grain = (bcluster_cnt - part_size) / slice;
 
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
 
-    printf("debug out reorder: %d %d\n", reorder_list.size(), grain);
+    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
 
 }
 
@@ -627,8 +647,16 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
                     // Memory transfer
                     // Use default stream here (no need to manually sync)
                     auto tt0 = elapsed();
-                    for (int j = 0; j < num; j++)
+                    for (int j = 0; j < num; j++){
+                        // while(true){
+                        //     pthread_mutex_lock(&(preemption_mutex));
+                        //     bool che = preemption;
+                        //     pthread_mutex_unlock(&(preemption_mutex));
+                        //     if (che)
+                        //         break;
+                        // }
                         pgr_->memcpyh2d(mb.pages[j]);
+                    }
                     com_transmission += elapsed() - tt0;
                     break;
                 }
@@ -951,7 +979,6 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
     *clus = afterClus;
     *query = afterQuery;
 
-#pragma omp parallel for
     for (int i = 0; i < nt; i++){
         delete[] clusPerQuerySlave[i];
         delete[] queryClusMatSlave[i];
@@ -987,8 +1014,6 @@ void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* que
     
     for (int i = 0; i < oriClus; i++) {
         int clusRow = rows[i];
-        int clus = clusIds[clusRow];
-
         for (int j = 0; j < oriQuery; j++) {
             int query = clusQueryMat[oriQuery * clusRow + j];
             if (query == -1) {
