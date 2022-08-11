@@ -827,8 +827,14 @@ std::pair<int, int> PipeScheduler::genematrix(int **queryClusMat, int **queryIds
         rows[i] = reversemap[group[i]];
     FAISS_ASSERT(maxqueryNum > 0);
 
-    transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
-        queryMax, clusMax, rows, bcluster_list, queryIds);
+    if (groupSize > 8 * 4){
+        transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
+            queryMax, clusMax, rows, bcluster_list, queryIds);
+    }
+    else{
+        transpose_single(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
+            queryMax, clusMax, rows, bcluster_list, queryIds);
+    }
 
     return std::pair<int,int>(maxqueryNum, groupSize);
 }
@@ -953,8 +959,6 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
 
 
 void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
-
-
     int oriClus = *clus;
     int oriQuery = *query;
     int afterClus = 0;
@@ -976,7 +980,7 @@ void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* que
             if (query == -1) {
                 continue;
             }
-            queryClus[query * clusMax + clusPerQuery[query]] = clus;
+            queryClus[query * clusMax + clusPerQuery[query]] = i;
             clusPerQuery[query] += 1;
         }
 
