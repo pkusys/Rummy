@@ -487,7 +487,7 @@ void* PipeGpuResources::getPageAddress(int pageid){
     return (void*)(p_ + pageSize_ * pageid);
 }
 
-void PipeGpuResources::memcpyh2d(int pageid){
+void PipeGpuResources::memcpyh2d(int pageid, cudaStream_t stream){
     float *target = (float*)getPageAddress(pageid);
 
     int cluid = pageinfo[pageid];
@@ -498,11 +498,13 @@ void PipeGpuResources::memcpyh2d(int pageid){
     float *index_target = target + bytes / sizeof(float);
 
     // This is a sync version copy for profiler
-    cudaMemcpy((void*)target , pc_->Mem[cluid], 
-            bytes, cudaMemcpyHostToDevice);
+    cudaMemcpyAsync((void*)target , pc_->Mem[cluid],
+            bytes, cudaMemcpyHostToDevice, stream);
 
-    cudaMemcpy((void*)index_target , pc_->Balan_ids[cluid], 
-            index_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpyAsync((void*)index_target , pc_->Balan_ids[cluid], 
+            index_bytes, cudaMemcpyHostToDevice, stream);
+    
+    cudaStreamSynchronize(stream);
 }
 
 //

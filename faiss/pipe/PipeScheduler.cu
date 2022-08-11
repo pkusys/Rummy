@@ -95,9 +95,9 @@ void *computation(void *arg){
     param->sche->ids_buffer[idx]->setResources(pc, pgr);
     param->sche->ids_buffer[idx]->reserve();
 
-    // pthread_mutex_lock(&(param->sche->preemption_mutex));
-    // param->sche->preemption = false;
-    // pthread_mutex_unlock(&(param->sche->preemption_mutex));
+    pthread_mutex_lock(&(param->sche->preemption_mutex));
+    param->sche->preemption = false;
+    pthread_mutex_unlock(&(param->sche->preemption_mutex));
 
     PipeTensor<void*, 1, true>* ListDataP_ = 
         new PipeTensor<void*, 1, true>({param->clunum}, pc);
@@ -129,9 +129,9 @@ void *computation(void *arg){
     query_cluster_matrix_gpu->setResources(pc, pgr);
     query_cluster_matrix_gpu->memh2d(exec_stream);
 
-    // pthread_mutex_lock(&(param->sche->preemption_mutex));
-    // param->sche->preemption = true;
-    // pthread_mutex_unlock(&(param->sche->preemption_mutex));
+    pthread_mutex_lock(&(param->sche->preemption_mutex));
+    param->sche->preemption = true;
+    pthread_mutex_unlock(&(param->sche->preemption_mutex));
 
     tt = elapsed();
     printf("debug : Tensor time %.3f\n", (tt - t)*1000);
@@ -565,6 +565,8 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
 
 void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
 
+    auto h2d_stream = pgr_->getCopyH2DStream(0);
+
     queryMax = n;
 
     // Create queries Tensor
@@ -648,14 +650,14 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
                     // Use default stream here (no need to manually sync)
                     auto tt0 = elapsed();
                     for (int j = 0; j < num; j++){
-                        // while(true){
-                        //     pthread_mutex_lock(&(preemption_mutex));
-                        //     bool che = preemption;
-                        //     pthread_mutex_unlock(&(preemption_mutex));
-                        //     if (che)
-                        //         break;
-                        // }
-                        pgr_->memcpyh2d(mb.pages[j]);
+                        while(true){
+                            pthread_mutex_lock(&(preemption_mutex));
+                            bool che = preemption;
+                            pthread_mutex_unlock(&(preemption_mutex));
+                            if (che)
+                                break;
+                        }
+                        pgr_->memcpyh2d(mb.pages[j], h2d_stream);
                     }
                     com_transmission += elapsed() - tt0;
                     break;

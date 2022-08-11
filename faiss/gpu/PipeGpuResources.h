@@ -107,7 +107,7 @@ public:
 
     void* getPageAddress(int pageid);
 
-    void memcpyh2d(int pageid);
+    void memcpyh2d(int pageid, cudaStream_t stream = 0);
 
 private:
 
