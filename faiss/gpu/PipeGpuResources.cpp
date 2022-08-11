@@ -251,7 +251,7 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
     pc_ = pc;
 
     // Set the page size to the number of bytes of a balanced cluster
-    setPageSize(pc->bcs * (pc->d + 1) * sizeof(float));
+    setPageSize(pc->bcs * (pc->d) * sizeof(float) + pc->bcs * sizeof(int));
     
     // switch to the "device"
     FAISS_ASSERT(device < getNumDevices());
@@ -387,6 +387,8 @@ MemBlock PipeGpuResources::allocMemory(int size){
     freecnt = cnt;
     cnt = size - freecnt;
 
+    // printf("free page: %d\n", freecnt);
+
     if (cnt == 0){
         // no need to sort
         best.pages = std::move(alloc);
@@ -409,10 +411,12 @@ MemBlock PipeGpuResources::allocMemory(int size){
 
         cnt++;
     }
+    // printf("no pined page: %d\n", cnt);
     if (cnt + freecnt == size){
         // Free these pages
         for (int i = freecnt; i < size; i++){
             int id = alloc[i];
+            // fflush(stdout);
             pc_->clu_page[pageinfo[id]] = -1;
             pc_->setonDevice(pageinfo[id], id, false, false);
             pageinfo[id] = -1;
@@ -421,12 +425,12 @@ MemBlock PipeGpuResources::allocMemory(int size){
         best.pages = std::move(alloc);
         return best;
     }
-    // No enough pages to allcate
+    // No enough pages to allocate
     // Reset the allocated pages in trees
     else{
         int i = 0;
         for (; i < freecnt; i++){
-            pc_->LRUtree_->insert(alloc[i], alloc[i]);
+            freetree_->insert(alloc[i], alloc[i]);
         }
         for (; i < freecnt + cnt; i++){
             pc_->LRUtree_->insert(tmppairs[i - freecnt].first, tmppairs[i - freecnt].second);

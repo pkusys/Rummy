@@ -62,7 +62,9 @@ void PipeProfiler::save(const char* path_){
 
     fprintf(fp, "{coms}\n");
     for (auto it = coms->computeTimeDict.begin(); it != coms->computeTimeDict.end(); it++){
-        fprintf(fp, "%zu %lf\n", it->first, it->second);
+        int dataCnt = (it->first) >> 32;
+        int split = (it->first) & 0xffffffff;
+        fprintf(fp, "%d %d %lf\n", dataCnt, split, it->second);
     }
     fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
     
@@ -107,8 +109,12 @@ void PipeProfiler::load(const char* path_){
 
     while(true){
         unsigned long key;
+        int dataCnt;
+        int split;
+
         double value;
-        fscanf(fp, "%zu %lf", &key, &value);
+        fscanf(fp, "%d %d %lf", &dataCnt, &split, &value);
+        key = ((unsigned long)dataCnt << 32) + (unsigned long)split;
         // printf("%zu %lf\n", key, value);
         if(key == 0){
             break;
@@ -122,7 +128,7 @@ void PipeProfiler::load(const char* path_){
 
     trans->istrained = true;
     coms->istrained = true;
-    istrained = true;
+    this->istrained = true;
 
     return;
 }

@@ -28,23 +28,13 @@
 
 #include <omp.h>
 
-#include <faiss/IndexFlat.h>
-#include <faiss/index_io.h>
 #include <faiss/pipe/IndexIVFPipe.h>
-#include <faiss/gpu/GpuIndexIVFFlat.h>
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/gpu/PipeGpuResources.h>
-#include <faiss/gpu/impl/DistanceUtils.cuh>
-#include <faiss/gpu/utils/DeviceDefs.cuh>
-#include <faiss/gpu/utils/DeviceTensor.cuh>
-#include <faiss/gpu/utils/DeviceUtils.h>
-#include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/PipeTensor.cuh>
 #include <faiss/pipe/PipeScheduler.h>
-#include <faiss/gpu/impl/IVFInterleaved.cuh>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/pipe/PipeKernel.cuh>
-#include <thrust/device_vector.h>
 
 double elapsed() {
     struct timeval tv;
@@ -105,11 +95,11 @@ int main(){
     int dim = 128;
     int dev_no = 0;
     int ncentroids = 64 * 4;
-    faiss::gpu::StandardGpuResources resources;
-
+    
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
+    // faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
 
     FAISS_ASSERT (config.interleavedLayout == true);
 
@@ -200,12 +190,13 @@ int main(){
     printf("[%.3f s] Start Profile\n",
                elapsed() - t0);
     // Train profile
-    if (!file_exist("./profiler.txt")){
+    std::string profile_name = "Profile_" + std::string("Sift_") + std::to_string(ncentroids) + ".txt";
+    if (!file_exist(profile_name.c_str())){
         index->profile();
-        index->saveProfile("./profiler.txt");
+        index->saveProfile(profile_name.c_str());
     }
     else{
-        index->loadProfile("./profiler.txt");
+        index->loadProfile(profile_name.c_str());
     }
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
@@ -222,6 +213,8 @@ int main(){
             pc, pipe_res, bs, xq, topk, dis.data(), idx.data());
     auto tt1 = elapsed();
     printf("Search Time: %.3f ms\n", (tt1 - tt0)*1000);
+    printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
+        sche->com_time*1000, sche->com_transmission*1000);
     delete sche;
 
     for (int i = 0; i < topk; i++){
@@ -234,9 +227,11 @@ int main(){
     tt0 = elapsed();
 
     sche = new faiss::gpu::PipeScheduler(index, 
-            pc, pipe_res, 8, xq + d * bs, topk, dis.data(), idx.data());
+            pc, pipe_res, 1, xq + d * bs, topk, dis.data(), idx.data());
     tt1 = elapsed();
     printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
+    printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
+        sche->com_time*1000, sche->com_transmission*1000);
     
     delete sche;
 
@@ -249,5 +244,6 @@ int main(){
     delete[] gt;
     delete[] gtd;
     delete index;
+    delete pipe_res;
     return 0;
 }

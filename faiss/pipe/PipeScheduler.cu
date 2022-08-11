@@ -38,6 +38,8 @@ struct Param{
 // Thread function: computation
 void *computation(void *arg){
     Param* param = (Param *)arg;
+    double compu_time = 0.;
+    double t, tt;
 
     // Destruct the param
     PipeCluster* pc = param->sche->pc_;
@@ -69,6 +71,7 @@ void *computation(void *arg){
     // Only one com thread is allowed in
     pthread_mutex_lock(&(pc->com_mutex));
     pthread_mutex_lock(&(pc->resource_mutex));
+    t = elapsed();
     int idx = param->sche->com_index++;
     param->sche->queries_ids[idx] = queryIds;
     param->sche->queries_num[idx] = shape.first;
@@ -122,7 +125,11 @@ void *computation(void *arg){
     query_cluster_matrix_gpu->setResources(pc, pgr);
     query_cluster_matrix_gpu->memh2d(exec_stream);
 
+    tt = elapsed();
+    compu_time += tt - t;
+
     pthread_mutex_unlock(&(pc->resource_mutex));
+    t = elapsed();
 
     int split = 1;
     int cur_block_num = shape.first * shape.second;
@@ -172,6 +179,11 @@ void *computation(void *arg){
     delete ListIndexP_;
     delete ListDataP_;
 
+    tt = elapsed();
+    compu_time += tt - t;
+
+    param->sche->com_time += compu_time;
+
     pthread_mutex_unlock(&(pc->com_mutex));
 
     // Change page info
@@ -180,12 +192,15 @@ void *computation(void *arg){
     for (int i = 0; i < param->clunum; i++){
         int cluid = param->group[i];
         int page = pc->clu_page[cluid];
-        pc->setComDevice(cluid, page, false);
         int lrucnt = (param->sche->query_per_bcluster)[param->sche->reversemap[cluid]];
         pc->addGlobalCount(cluid, page, lrucnt);
+        pc->setComDevice(cluid, page, false);
     }
 
     pthread_mutex_unlock(&(pc->resource_mutex));
+
+    delete[] matrix;
+    // delete[] queryIds;
 
     return((void *)0);
 }
@@ -239,7 +254,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 t0 = t1;
 
                 // deubg
-                printf("---Demo group----\n");
+                printf("----Demo group----\n");
                 for(int i = 0; i < groups.size(); i++){
                     printf("%d ", groups[i]);
                 }
@@ -605,13 +620,16 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
                         pc_->setonDevice(clus, mb.pages[j], true);
                         pc_->setComDevice(clus, mb.pages[j], true);
                         pc_->clu_page[clus] = mb.pages[j];
+                        // printf(" [%d, %d] ", mb.pages[j], clus);
                         // p->pc_->addGlobalCount(clus, mb.pages[j], 1);
                     }
                     pthread_mutex_unlock(&(pc_->resource_mutex));
                     // Memory transfer
                     // Use default stream here (no need to manually sync)
+                    auto tt0 = elapsed();
                     for (int j = 0; j < num; j++)
                         pgr_->memcpyh2d(mb.pages[j]);
+                    com_transmission += elapsed() - tt0;
                     break;
                 }
                 else{
@@ -759,6 +777,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
     for (int i = num_group - 1; i >= 0; i--){
         delete ids_buffer[i];
         delete dis_buffer[i];
+        delete[] queries_ids[i];
     }
 
     return;

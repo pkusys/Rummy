@@ -143,8 +143,11 @@ IndexIVFPipe::~IndexIVFPipe() {
         delete invlists;
     }
     else{
+        FAISS_ASSERT(pipe_cluster != nullptr);
         delete pipe_cluster;
     }
+    if (profiler != nullptr)
+        delete profiler;
 }
 
 void IndexIVFPipe::reset() {
@@ -776,8 +779,6 @@ void IndexIVFPipe::balance() {
         indexes[i] = index_list_int;
     }
 
-    // sleep(10);
-
     // Construct PipeCluster from the origional clusters' data.
     pipe_cluster = new PipeCluster(nlist, d, sizes, pointers, 
         indexes, ivfPipeConfig_.interleavedLayout);
@@ -791,7 +792,8 @@ void IndexIVFPipe::set_nprobe(size_t nprobe_) {
 }
 
 void IndexIVFPipe::profile() {
-    profiler = new gpu::PipeProfiler(this);
+    if (profiler == nullptr)
+        profiler = new gpu::PipeProfiler(this);
     double t0 = timepoint();
     if(verbose)
         printf("start profile\n");
@@ -809,7 +811,8 @@ void IndexIVFPipe::saveProfile(const char* path){
 }
 
 void IndexIVFPipe::loadProfile(const char* path){
-    profiler = new gpu::PipeProfiler(this);
+    if (profiler == nullptr)
+        profiler = new gpu::PipeProfiler(this);
     profiler->load(path);
 }
 

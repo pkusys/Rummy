@@ -155,6 +155,10 @@ public:
 
     int com_index = 0;
 
+    double com_time = 0.;
+
+    double com_transmission = 0.;
+
 };
 
 
