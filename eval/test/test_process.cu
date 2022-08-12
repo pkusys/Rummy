@@ -242,11 +242,11 @@ int main(){
     // std::cout << pipe_res->tempMemory_[0]->toString() << "\n";
 
     printf("\n--- Next Batches ---\n");
-    index->set_nprobe(ncentroids / 8);
+    index->set_nprobe(4);
     double total = 0.;
     double acc = 0.;
     int newbs = 1;
-    int size = 1;
+    int size = 100;
     double ave_opt = 0.;
     for (int i = 0; i < size; i++){
         tt0 = elapsed();

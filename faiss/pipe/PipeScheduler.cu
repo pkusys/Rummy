@@ -420,8 +420,11 @@ void PipeScheduler::group(){
 
     grain = std::min(grain, max_size);
 
+    printf("debug: grain %d, part size %d\n", grain, part_size);
+
     if (part_size != 0) {
-        if (part_size / 4 == part_size){
+        int pre = part_size / 4;
+        if (pre == 0){
             groups.push_back(part_size);
         }
         else {
