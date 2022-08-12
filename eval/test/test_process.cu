@@ -223,6 +223,9 @@ int main(){
 
     auto tt0 = elapsed();
 
+    // std::cout << pc->PinTempStatus() << "\n";
+    // std::cout << pipe_res->tempMemory_[0]->toString() << "\n";
+
     auto sche = new faiss::gpu::PipeScheduler(index, 
             pc, pipe_res, bs, xq, topk, dis.data(), idx.data());
     auto tt1 = elapsed();
@@ -235,13 +238,16 @@ int main(){
         printf("%d %ld: %f %f\n", idx[i + topk * 128], gt[i + 100 * 128], dis[i + topk * 128], gtd[i + 100 * 128]);
     }
 
+    // std::cout << pc->PinTempStatus() << "\n";
+    // std::cout << pipe_res->tempMemory_[0]->toString() << "\n";
 
     printf("\n--- Next Batches ---\n");
     index->set_nprobe(ncentroids / 8);
     double total = 0.;
     double acc = 0.;
-    int newbs = 72;
-    int size = 30;
+    int newbs = 1;
+    int size = 1;
+    double ave_opt = 0.;
     for (int i = 0; i < size; i++){
         tt0 = elapsed();
         sche = new faiss::gpu::PipeScheduler(index, 
@@ -251,13 +257,18 @@ int main(){
         total += tt1 - tt0;
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
             sche->com_time*1000, sche->com_transmission*1000);
+        ave_opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
         delete sche;
         for (int j = 0; j < newbs; j++)
             acc += inter_sec(idx.data() + topk * j, gt + k * ((bs + newbs*i) + j), topk);
     }
-    
+
+    printf("Ave Opt Latency : %.3f ms\n", ave_opt / size);
     printf("Ave Latency : %.3f ms\n", total * 1000. / size);
     printf("Ave accuracy : %.1f%% \n", acc * 100. / (size * newbs));
+
+    // std::cout << pc->PinTempStatus() << "\n";
+    // std::cout << pipe_res->tempMemory_[0]->toString() << "\n";
 
 
     delete[] xq;
