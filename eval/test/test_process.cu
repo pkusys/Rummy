@@ -52,6 +52,20 @@ bool file_exist(const std::string& file_path)
 		return false;
 }
 
+double inter_sec(int *taget, int *gt, int k){
+    double res = 0.;
+    for (int i = 0; i < k; i++){
+        int val = taget[i];
+        for (int j = 0; j < k; j++){
+            if (val == gt[j]){
+                res += 1.;
+                break;
+            }
+        }
+    }
+    return res / k;
+}
+
 float* fvecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     FILE* f = fopen(fname, "r");
     if (!f) {
@@ -148,7 +162,7 @@ int main(){
     }
 
     size_t k;                // nb of results per query in the GT
-    faiss::Index::idx_t* gt; // nq * k matrix of ground-truth nearest-neighbors
+    int* gt; // nq * k matrix of ground-truth nearest-neighbors
 
     {
         printf("[%.3f s] Loading ground truth for %ld queries\n",
@@ -160,7 +174,7 @@ int main(){
         int* gt_int = ivecs_read("/workspace/data/sift/sift10M/idx.ivecs", &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
 
-        gt = new faiss::Index::idx_t[k * nq];
+        gt = new int[k * nq];
         for (int i = 0; i < k * nq; i++) {
             gt[i] = gt_int[i];
         }
@@ -222,22 +236,28 @@ int main(){
     }
 
 
-    printf("\n--- Next Batch ---\n");
+    printf("\n--- Next Batches ---\n");
     index->set_nprobe(ncentroids / 8);
-    tt0 = elapsed();
-
-    sche = new faiss::gpu::PipeScheduler(index, 
-            pc, pipe_res, 8, xq + d * bs, topk, dis.data(), idx.data());
-    tt1 = elapsed();
-    printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
-    printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
-        sche->com_time*1000, sche->com_transmission*1000);
-    
-    delete sche;
-
-    for (int i = 0; i < topk; i++){
-        printf("%d %ld: %f %f\n", idx[i], gt[i + 100 * bs], dis[i], gtd[i + 100 * bs]);
+    double total = 0.;
+    double acc = 0.;
+    int newbs = 72;
+    int size = 30;
+    for (int i = 0; i < size; i++){
+        tt0 = elapsed();
+        sche = new faiss::gpu::PipeScheduler(index, 
+                pc, pipe_res, newbs, xq + d * (bs + newbs*i), topk, dis.data(), idx.data());
+        tt1 = elapsed();
+        printf("Second Search Time: %.3f ms\n", (tt1 - tt0)*1000);
+        total += tt1 - tt0;
+        printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
+            sche->com_time*1000, sche->com_transmission*1000);
+        delete sche;
+        for (int j = 0; j < newbs; j++)
+            acc += inter_sec(idx.data() + topk * j, gt + k * ((bs + newbs*i) + j), topk);
     }
+    
+    printf("Ave Latency : %.3f ms\n", total * 1000. / size);
+    printf("Ave accuracy : %.1f%% \n", acc * 100. / (size * newbs));
 
 
     delete[] xq;

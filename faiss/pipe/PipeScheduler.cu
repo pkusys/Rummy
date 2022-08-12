@@ -470,8 +470,16 @@ void PipeScheduler::group(){
 
     num_group = groups.size();
 
-    if (groups[num_group - 1] != n)
-        groups[num_group - 1] = n;
+    if (groups[num_group - 1] != n){
+        int end = groups[num_group - 1];
+        int preend = num_group - 2 >= 0 ? groups[num_group - 2] : 0;
+        if (end - preend >= max_size){
+            num_group++;
+            groups.push_back(n);
+        }
+        else
+            groups[num_group - 1] = n;
+    }
 
 }
 
