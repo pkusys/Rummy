@@ -226,6 +226,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
             reorder_list.resize(bcluster_cnt);
 
             reorder();
+            //nonReorder();
 
             group();
 
@@ -255,6 +256,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 reorder_list.resize(bcluster_cnt);
 
                 reorder();
+                //nonReorder();
                 t1 = elapsed();
                 printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
                 t0 = t1;
@@ -375,6 +377,31 @@ void PipeScheduler::reorder(){
 
 }
 
+void PipeScheduler::nonReorder(){
+    for (int i = 0; i < bcluster_cnt; i++){
+        int cluid = bcluster_list[i];
+        reversemap[cluid] = i;
+        reorder_list[i] = cluid;
+    }
+
+    part_size = 0;
+
+    int slice = 8;
+
+    if (batch_size > 0 && batch_size >= 128)
+        slice = 8;
+    else if (batch_size > 0)
+        slice = 4;
+
+    grain = (bcluster_cnt - part_size) / slice;
+
+    grain = (grain == 0 ? 1 : grain);
+
+    // grain = 1;
+
+    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+}
+
 void PipeScheduler::group(){
     canv = 0;
 
@@ -390,6 +417,8 @@ void PipeScheduler::group(){
         max_size = pgr_->pageNum_ - part_size + part_size / 4;
     else
         max_size = n - part_size + part_size / 4;
+
+    grain = std::min(grain, max_size);
 
     if (part_size != 0) {
         if (part_size / 4 == part_size){
@@ -632,7 +661,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
 
         // Transmission
         std::vector<int> clusters(end - sta);
-        std::vector<bool> noresident(end - sta);
+        std::vector<int> noresident(end - sta);
         int num = 0;
         for (int j = 0; j < clusters.size(); j++){
             clusters[j] = reorder_list[sta + j];
@@ -661,7 +690,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
 
                 if (mb.valid){
                     for (int j = 0; j < num; j++){
-                        int clus = clusters[j];
+                        int clus = noresident[j];
                         pgr_->pageinfo[mb.pages[j]] = clus;
                         pc_->setonDevice(clus, mb.pages[j], true);
                         pc_->setComDevice(clus, mb.pages[j], true);

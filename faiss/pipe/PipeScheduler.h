@@ -53,6 +53,8 @@ public:
     // Reorder the clusters to minimize the pipeline overhead
     void reorder();
 
+    void nonReorder();
+
     // Optimal query-aware Grouping
     void group();
 
