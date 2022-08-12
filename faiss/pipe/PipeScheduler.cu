@@ -479,7 +479,7 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
     pipelinegroup opt;
     int n = reorder_list.size();
     int f1 = staclu + grain;
-    if (f1 > n){
+    if (f1 == n + grain){
         opt.time = total;
         opt.delay = delay;
         
@@ -489,6 +489,22 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
             printf("%d\n", canv/1000000);
         }
         return opt;
+    }
+    else if (f1 > n){
+
+        float tran = measure_tran(n - staclu);
+        float com = measure_com(staclu, n);
+
+        opt.time = tran > delay ? total + tran - delay + com : total + com;
+
+        canv += 1;
+
+        if(canv % 1000000 == 0){
+            printf("%d\n", canv/1000000);
+        }
+        return opt;
+
+
     }
 
     // prune 1
