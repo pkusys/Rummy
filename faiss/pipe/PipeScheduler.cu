@@ -77,6 +77,7 @@ void *computation(void *arg){
     param->sche->queries_num[idx] = shape.first;
     // param->sche->max_quries_num = std::max(param->sche->max_quries_num, shape.first)
     auto exec_stream = pgr->getExecuteStream(0);
+    auto d2h_stream = pgr->getCopyD2HStream(0);
 
     // Create the Tensors
     for (int i = 0; i < shape.first; i++){
@@ -180,6 +181,9 @@ void *computation(void *arg){
             split);
     
     cudaStreamSynchronize(exec_stream);
+
+    param->sche->dis_buffer[idx]->memd2h(d2h_stream);
+    param->sche->dis_buffer[idx]->memd2h(d2h_stream);
 
     // Delete the allocated Tensor in order
     delete query_cluster_matrix_gpu;

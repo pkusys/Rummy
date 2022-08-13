@@ -242,7 +242,7 @@ int main(){
     // std::cout << pipe_res->tempMemory_[0]->toString() << "\n";
 
     printf("\n--- Next Batches ---\n");
-    index->set_nprobe(4);
+    index->set_nprobe(ncentroids / 8);
     double total = 0.;
     double acc = 0.;
     int newbs = 1;
