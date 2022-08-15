@@ -36,3 +36,6 @@ target_link_libraries(test_multi PRIVATE faiss)
 
 add_executable(test_process EXCLUDE_FROM_ALL test_process.cu)
 target_link_libraries(test_process PRIVATE faiss)
+
+add_executable(test_copy_from EXCLUDE_FROM_ALL test_copy_from.cu)
+target_link_libraries(test_copy_from PRIVATE faiss)

@@ -959,9 +959,9 @@ void IndexIVF::update_vectors(int n, const idx_t* new_ids, const float* x) {
 
 void IndexIVF::train(idx_t n, const float* x) {
 #pragma omp parallel for
-    for (int i = 0; i < 8; i++){
-        printf("%d haha\n", omp_in_parallel());
-    }
+    // for (int i = 0; i < 8; i++){
+    //     printf("%d haha\n", omp_in_parallel());
+    // }
     if (verbose)
         printf("Training level-1 quantizer\n");
 
