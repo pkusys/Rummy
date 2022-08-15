@@ -106,7 +106,7 @@ int main(){
     omp_set_num_threads(8);
     auto t0 = elapsed();
 
-    int dim = 128;
+    int dim = 96;
     int dev_no = 0;
     int ncentroids = 64 * 4;
     
@@ -123,11 +123,13 @@ int main(){
         printf("[%.3f s] Loading train set\n", elapsed() - t0);
 
         size_t nt;
-        float* xt = fvecs_read("/workspace/data/sift/sift10M/sift10M.fvecs", &d, &nt);
+        float* xt = fvecs_read("/workspace/data-gpu/deep/deep50M.fvecs", &d, &nt);
 
         FAISS_ASSERT(d == dim);
 
         printf("[%.3f s] Training on %ld vectors\n", elapsed() - t0, nt);
+
+        nt = 10000000;
 
         index->train(nt, xt);
         delete[] xt;
@@ -138,7 +140,7 @@ int main(){
         printf("[%.3f s] Loading database\n", elapsed() - t0);
 
         size_t nb, d2;
-        float* xb = fvecs_read("/workspace/data/sift/sift10M/sift10M.fvecs", &d2, &nb);
+        float* xb = fvecs_read("/workspace/data-gpu/deep/deep50M.fvecs", &d2, &nb);
         assert(d == d2 || !"dataset does not have same dimension as train set");
 
         printf("[%.3f s] Indexing database, size %ld*%ld\n",
@@ -157,7 +159,7 @@ int main(){
         printf("[%.3f s] Loading queries\n", elapsed() - t0);
 
         size_t d2;
-        xq = fvecs_read("/workspace/data/sift/sift10M/query.fvecs", &d2, &nq);
+        xq = fvecs_read("/workspace/data-gpu/deep/query.fvecs", &d2, &nq);
         assert(d == d2 || !"query does not have same dimension as train set");
     }
 
@@ -171,7 +173,7 @@ int main(){
 
         // load ground-truth and convert int to long
         size_t nq2;
-        int* gt_int = ivecs_read("/workspace/data/sift/sift10M/idx.ivecs", &k, &nq2);
+        int* gt_int = ivecs_read("/workspace/data-gpu/deep/deep50Mgti.ivecs", &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
 
         gt = new int[k * nq];
@@ -189,7 +191,7 @@ int main(){
 
         // load ground-truth and convert int to long
         size_t nq2;
-        gtd = fvecs_read("/workspace/data/sift/sift10M/dis.fvecs", &k, &nq2);
+        gtd = fvecs_read("/workspace/data-gpu/deep/deep50Mgtd.fvecs", &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
     printf("[%.3f s] Start Balancing\n",
@@ -245,8 +247,8 @@ int main(){
     index->set_nprobe(ncentroids / 8);
     double total = 0.;
     double acc = 0.;
-    int newbs = 1;
-    int size = 100;
+    int newbs = 256;
+    int size = 10;
     double ave_opt = 0.;
     for (int i = 0; i < size; i++){
         tt0 = elapsed();
