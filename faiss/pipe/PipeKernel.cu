@@ -320,6 +320,7 @@ void runKernelComputeReduce(
 {
 
     auto exe_stream = pipe_res->getExecuteStream(device);
+    DeviceScope scope(device);
 
     bool goodsplit = false;
     for(int i = 1; i <= 256; i *= 2) {

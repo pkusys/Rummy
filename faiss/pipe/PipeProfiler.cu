@@ -314,45 +314,57 @@ void PipeProfiler::ComProfiler::train(){
     }
     auto pc = p->pc_;
     auto pgr = p->pgr_;
-    auto h2d_stream = pgr->getCopyH2DStream(0);
-    auto exe_stream = pgr->getExecuteStream(0);
+    auto index = p->index_;
+    auto device = index->ivfPipeConfig_.device;
+    auto h2d_stream = pgr->getCopyH2DStream(device);
+    auto exe_stream = pgr->getExecuteStream(device);
+    DeviceScope scope(device);
 
     std::vector<void*> ListDataP_vec;
     std::vector<void*> ListIndexP_vec;//fake index
-    ListDataP_vec.resize(pc->bnlist);
-    ListIndexP_vec.resize(pc->bnlist);
+    std::vector<int> ListLength_vec;
 
-    for(int i = 0; i < pc->bnlist; i++) {
-        void* dataP;
-        void* IndexP;
-        int vectorNum = pc->BCluSize[i];
-        vectorNum = (vectorNum + 31) / 32 * 32;
-        int bytes = vectorNum * d * sizeof(float);
-        cudaMalloc(&dataP, bytes);
-        cudaMemcpy(dataP, pc->Mem[i], bytes, cudaMemcpyHostToDevice);
-        ListDataP_vec[i] = dataP;
+    int listNum = std::min(pc->bnlist, (int)pgr->pageNum_);
 
-        cudaMalloc(&IndexP, sizeof(int) * pc->BCluSize[i]);
-        cudaMemcpy(IndexP, pc->Balan_ids[i], sizeof(int) * pc->BCluSize[i], cudaMemcpyHostToDevice);
-        ListIndexP_vec[i] = IndexP;
+    faiss::gpu::MemBlock mb = p->pgr_->allocMemory(listNum);
+
+    FAISS_ASSERT(mb.valid == true);
+
+    ListDataP_vec.resize(listNum);
+    ListIndexP_vec.resize(listNum);
+    ListLength_vec.resize(listNum);
+
+    // radomly set allocated pages to clusters
+    // and free these pages
+    for (int j = 0; j < mb.pages.size(); j++){
+        int clus = j;
+        p->pgr_->pageinfo[mb.pages[j]] = clus;
+        p->pc_->setonDevice(clus, mb.pages[j], true);
+
+        // Memory transfer
+        p->pgr_->memcpyh2d(mb.pages[j]);
+        ListDataP_vec[j] = pgr->getPageAddress(mb.pages[j]);
+        ListIndexP_vec[j] = (void *)((float*)(ListDataP_vec[j]) + 
+                pc->d * pc->BCluSize[clus]);
+        ListLength_vec[j] = pc->BCluSize[clus];
     }
 
-    auto ListLength_vec = pc->BCluSize;
-    faiss::gpu::PipeTensor<void*, 1, true> ListDataP_({pc->bnlist}, pc);
+
+    faiss::gpu::PipeTensor<void*, 1, true> ListDataP_({listNum}, pc);
     ListDataP_.copyFrom(ListDataP_vec, h2d_stream);
     ListDataP_.setResources(pc, pgr);
     ListDataP_.memh2d(h2d_stream);
 
     void** ListDataP = ListDataP_.devicedata();
 
-    faiss::gpu::PipeTensor<int, 1, true> ListLength_({pc->bnlist}, pc);
+    faiss::gpu::PipeTensor<int, 1, true> ListLength_({listNum}, pc);
     ListLength_.copyFrom(ListLength_vec, h2d_stream);
     ListLength_.setResources(pc, pgr);
     ListLength_.memh2d(h2d_stream);
 
     int* ListLength = ListLength_.devicedata();
 
-    faiss::gpu::PipeTensor<void*, 1, true> ListIndexP_({pc->bnlist}, pc);
+    faiss::gpu::PipeTensor<void*, 1, true> ListIndexP_({listNum}, pc);
     ListIndexP_.copyFrom(ListIndexP_vec, h2d_stream);
     ListIndexP_.setResources(pc, pgr);
     ListIndexP_.memh2d(h2d_stream);
@@ -395,7 +407,7 @@ void PipeProfiler::ComProfiler::train(){
     int* query_bcluster_matrix = new int[p->maxClus * 16];
 
     for (int i = 0; i < p->maxClus; i++) {
-        query_bcluster_matrix[i] = i % pc->bnlist;
+        query_bcluster_matrix[i] = i % listNum;
     }
     for (int i = 0 ;i < 16; i++) {
         memcpy(query_bcluster_matrix + p->maxClus * i, query_bcluster_matrix, sizeof(int) * p->maxClus);
@@ -447,7 +459,7 @@ void PipeProfiler::ComProfiler::train(){
                             out_indices,
                             pc,
                             pgr,
-                            0,
+                            device,
                             split);
 
             cudaStreamSynchronize(exe_stream);
@@ -465,7 +477,12 @@ void PipeProfiler::ComProfiler::train(){
         split *= 2;
     }
     
-    
+    for (int j = 0; j < mb.pages.size(); j++){
+        int clus = j;
+        p->pgr_->pageinfo[mb.pages[j]] = -1;
+        p->pc_->setonDevice(clus, mb.pages[j], false);
+        p->pgr_->freetree_->insert(mb.pages[j], mb.pages[j]);
+    }
     
     delete[] trainvecs;
     delete[] query_bcluster_matrix;

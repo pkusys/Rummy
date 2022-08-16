@@ -33,6 +33,7 @@ struct Param{
     int clunum;
     std::vector<int> group;
     int k;
+    int device;
 };
 
 // Thread function: computation
@@ -46,6 +47,7 @@ void *computation(void *arg){
     PipeGpuResources* pgr = param->sche->pgr_;
     int k = param->k;
 
+    DeviceScope scope(param->device);
     // Handle the params
     int *matrix;
     int *queryIds;
@@ -76,8 +78,8 @@ void *computation(void *arg){
     param->sche->queries_ids[idx] = queryIds;
     param->sche->queries_num[idx] = shape.first;
     // param->sche->max_quries_num = std::max(param->sche->max_quries_num, shape.first)
-    auto exec_stream = pgr->getExecuteStream(0);
-    auto d2h_stream = pgr->getCopyD2HStream(0);
+    auto exec_stream = pgr->getExecuteStream(param->device);
+    auto d2h_stream = pgr->getCopyD2HStream(param->device);
 
     // Create the Tensors
     for (int i = 0; i < shape.first; i++){
@@ -177,7 +179,7 @@ void *computation(void *arg){
             *(param->sche->ids_buffer[idx]),
             pc,
             pgr,
-            0,
+            param->device,
             split);
     
     cudaStreamSynchronize(exec_stream);
@@ -227,6 +229,9 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
         maxquery_per_bcluster(maxquery_per_bcluster_), \
         bcluster_query_matrix(bcluster_query_matrix_), free(free_),\
         queryMax(queryMax_), clusMax(clusMax_), num_group(-1){
+            DeviceScope *scope;
+            if(index != nullptr)
+                scope = new DeviceScope(index->ivfPipeConfig_.device);
             reorder_list.resize(bcluster_cnt);
 
             reorder();
@@ -238,12 +243,19 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
             // Initialize the computation threads
             pc_->com_threads.resize(num_group);
 
+            if(scope != nullptr){
+                delete scope;
+            }
+
         }
 
 PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label, bool free_)
             : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n) {
-
+                DeviceScope *scope;
+                if(index != nullptr)
+                    scope = new DeviceScope(index->ivfPipeConfig_.device);
+                reorder_list.resize(bcluster_cnt);
                 pthread_mutex_init(&preemption_mutex, 0);
 
                 int actual_nprobe;
@@ -286,10 +298,18 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 t1 = elapsed();
                 printf("Process Time: %.3f ms\n", (t1 - t0)*1000);
                 t0 = t1;
-                
+
+                if(scope != nullptr){
+                    delete scope;
+                }    
+
             }
 
 PipeScheduler::~PipeScheduler(){
+    DeviceScope* scope;
+    if(index_ != nullptr){
+        scope = new DeviceScope(index_->ivfPipeConfig_.device);
+    }
     // Free the input resource
     if(free){
         delete[] coarse_dis;
@@ -309,6 +329,9 @@ PipeScheduler::~PipeScheduler(){
     pthread_mutex_destroy(&preemption_mutex);
 
     // Free the PipeTensor in order
+    if(scope != nullptr){
+        delete scope;
+    }
 }
 
 void PipeScheduler::reorder(){
@@ -445,7 +468,7 @@ void PipeScheduler::group(){
     }
 
     float delay = measure_com(part_size/4, part_size);
-    int f1 = 1;
+    int f1 = part_size + 1;
 
     // prune 1
     for (int i = part_size + 1; i <= n; i+=1){
@@ -625,15 +648,17 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
 
 void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
 
-    auto h2d_stream = pgr_->getCopyH2DStream(0);
+    int device = index_->ivfPipeConfig_.device;
+    auto h2d_stream = pgr_->getCopyH2DStream(device);
 
     queryMax = n;
 
+    DeviceScope scope(device);
     // Create queries Tensor
     this->queries_gpu = new PipeTensor<float, 2, true>({n, this->pc_->d}, pc_);
-    queries_gpu->copyFrom((float*)xq, pgr_->getExecuteStream(0));
+    queries_gpu->copyFrom((float*)xq, pgr_->getExecuteStream(device));
     queries_gpu->setResources(pc_, pgr_);
-    queries_gpu->memh2d(pgr_->getExecuteStream(0));
+    queries_gpu->memh2d(pgr_->getExecuteStream(device));
 
     // Initialize the buffer
     dis_buffer.resize(num_group);
@@ -757,6 +782,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
         param->group = clusters;
         param->k = k;
         param->index = this->index_;
+        param->device = device;
 
         pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
 
@@ -770,7 +796,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
     FAISS_ASSERT(com_index == num_group);
 
     // Start Merge
-    auto exec_stream = pgr_->getExecuteStream(0);
+    auto exec_stream = pgr_->getExecuteStream(device);
     PipeTensor<int, 1, true> *cnt_per_query_gpu = 
         new PipeTensor<int, 1, true>({(int)n}, this->pc_);
     cnt_per_query_gpu->copyFrom(cnt_per_query, exec_stream);
@@ -847,7 +873,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
             cudaGetErrorString(cudaStatus));
     }
 
-    auto d2h_stream = pgr_->getCopyD2HStream(0);
+    auto d2h_stream = pgr_->getCopyD2HStream(device);
     out_distances->memd2h(d2h_stream);
     out_indices->memd2h(d2h_stream);
     cudaStreamSynchronize(d2h_stream);
