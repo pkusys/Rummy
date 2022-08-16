@@ -162,8 +162,8 @@ int main(int argc,char **argv){
         db = "/workspace/data-gpu/sift/sift40M.fvecs";
         train_db = "/workspace/data/sift/sift10M/sift10M.fvecs";
         query = "/workspace/data-gpu/sift/query.fvecs";
-        gtI = "/workspace/data/sift/idx_1M.ivecs";
-        gtD = "/workspace/data/sift/dis_1M.fvecs";
+        gtI = "/workspace/data-gpu/sift/sift40Mgti.ivecs";
+        gtD = "/workspace/data-gpu/sift/sift40Mgtd.fvecs";
         dim = 128;
     }
     else if (p1 == "deep"){
@@ -178,8 +178,8 @@ int main(int argc,char **argv){
         db = "/workspace/data-gpu/text/text25M.fvecs";
         train_db = "/workspace/data/text/text10M.fvecs";
         query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/workspace/data/sift/idx_1M.ivecs";
-        gtD = "/workspace/data/sift/dis_1M.fvecs";
+        gtI = "/workspace/data-gpu/sift/text25Mgti.ivecs";
+        gtD = "/workspace/data-gpu/sift/text25Mgtd.fvecs";
         dim = 200;
     }
     else{
@@ -188,6 +188,8 @@ int main(int argc,char **argv){
     }
 
     auto t0 = elapsed();
+
+    omp_set_num_threads(8);
 
     int ncentroids = 64 * 4;
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
@@ -300,15 +302,15 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    nq = 10000;
+    nq = 1000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
-    index->set_nprobe(ncentroids / 8);
+    index->set_nprobe(ncentroids / 32);
     double tt0, tt1, total = 0., opt = 0.;
 
     int i;
-    for (i = 0; i < nq / bs; i+=1){
+    for (i = 0; i < nq / bs; i++){
         tt0 = elapsed();
         auto sche = new faiss::gpu::PipeScheduler(index, 
             pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
