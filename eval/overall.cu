@@ -178,8 +178,8 @@ int main(int argc,char **argv){
         db = "/workspace/data-gpu/text/text25M.fvecs";
         train_db = "/workspace/data/text/text10M.fvecs";
         query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/workspace/data-gpu/sift/text25Mgti.ivecs";
-        gtD = "/workspace/data-gpu/sift/text25Mgtd.fvecs";
+        gtI = "/workspace/data-gpu/text/text25Mgti.ivecs";
+        gtD = "/workspace/data-gpu/text/text25Mgtd.fvecs";
         dim = 200;
     }
     else{

@@ -255,7 +255,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 DeviceScope *scope;
                 if(index != nullptr)
                     scope = new DeviceScope(index->ivfPipeConfig_.device);
-                reorder_list.resize(bcluster_cnt);
+
                 pthread_mutex_init(&preemption_mutex, 0);
 
                 int actual_nprobe;
