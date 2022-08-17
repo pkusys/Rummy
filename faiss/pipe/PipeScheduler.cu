@@ -450,14 +450,7 @@ void PipeScheduler::group(){
     printf("debug: grain %d, part size %d\n", grain, part_size);
 
     if (part_size != 0) {
-        int pre = part_size / 4;
-        if (pre == 0){
-            groups.push_back(part_size);
-        }
-        else {
-            groups.push_back(part_size / 4);
-            groups.push_back(part_size);
-        }
+        groups.push_back(part_size);
     }
 
     //Check if all clusters are resident on device

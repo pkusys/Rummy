@@ -6,3 +6,6 @@
 
 add_executable(overall EXCLUDE_FROM_ALL overall.cu)
 target_link_libraries(overall PRIVATE faiss)
+
+add_executable(comp EXCLUDE_FROM_ALL comp.cu)
+target_link_libraries(comp PRIVATE faiss)
