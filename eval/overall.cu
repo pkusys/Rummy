@@ -324,9 +324,6 @@ int main(int argc,char **argv){
         delete sche;
     }
 
-    for (int i = 0; i < input_k; i++)
-        printf("%d ", idx[i]);
-
     double acc = 0.;
     for (int j = 0; j < i * bs; j++){
         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);

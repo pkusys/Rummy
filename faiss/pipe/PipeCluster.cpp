@@ -91,8 +91,8 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     
     LRUtree_ = std::move(tmptree);
 
-    // mallocPinnedMem();
-    mallocNoPinnedMem();
+    mallocPinnedMem();
+    // mallocNoPinnedMem();
 
     pthread_mutex_init(&resource_mutex, 0);
 
