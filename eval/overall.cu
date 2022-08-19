@@ -302,12 +302,12 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    nq = 1000;
+    nq = 10000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
-    index->set_nprobe(ncentroids / 32);
-    double tt0, tt1, total = 0., opt = 0.;
+    index->set_nprobe(ncentroids / 16);
+    double tt0, tt1, total = 0., opt = 0., group_time = 0., reorder_time = 0.;
 
     int i;
     for (i = 0; i < nq / bs; i++){
@@ -318,9 +318,14 @@ int main(int argc,char **argv){
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
             sche->com_time*1000, sche->com_transmission*1000);
         total += (tt1 - tt0) * 1000;
+        group_time += sche->group_time;
+        reorder_time += sche->reorder_time;
         opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
         delete sche;
     }
+
+    for (int i = 0; i < input_k; i++)
+        printf("%d ", idx[i]);
 
     double acc = 0.;
     for (int j = 0; j < i * bs; j++){
@@ -329,6 +334,8 @@ int main(int argc,char **argv){
 
     printf("Ave Opt Latency : %.3f ms\n", opt / i);
     printf("Ave Latency : %.3f ms\n", total / i);
+    printf("Ave Reorder Time : %.3f ms\n", reorder_time / i);
+    printf("Ave Group Time : %.3f ms\n", group_time / i);
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
 
     delete[] xq;

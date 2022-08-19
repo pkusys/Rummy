@@ -275,11 +275,13 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 //nonReorder();
                 t1 = elapsed();
                 printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
+                reorder_time += (t1 - t0)*1000;
                 t0 = t1;
 
                 group();
                 t1 = elapsed();
                 printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
+                group_time = (t1 - t0)*1000;
                 t0 = t1;
 
                 // deubg

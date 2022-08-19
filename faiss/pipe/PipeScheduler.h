@@ -172,6 +172,10 @@ public:
 
     double com_transmission = 0.;
 
+    double group_time = 0.;
+
+    double reorder_time = 0.;
+
 };
 
 
