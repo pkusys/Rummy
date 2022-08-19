@@ -309,11 +309,17 @@ int main(int argc,char **argv){
     index->set_nprobe(ncentroids / 32);
     double tt0, tt1, total = 0., opt = 0.;
 
+    std::vector<faiss::gpu::Arecord> record_com;
+    std::map<int, float> record_tran;
+
+    std::map<int,float> profile_tran;
+    std::map<int, float> profile_com;
+
     int i;
     for (i = 0; i < nq / bs; i++){
         tt0 = elapsed();
         auto sche = new faiss::gpu::PipeScheduler(index, 
-            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
+            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i), record_com, record_tran);
         tt1 = elapsed();
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
             sche->com_time*1000, sche->com_transmission*1000);
@@ -327,9 +333,46 @@ int main(int argc,char **argv){
         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);
     }
 
+    FILE* f_profile;
+    std::string profile_path = p1 + "_" + p2 + "_profile_eval.txt";
+    f_profile = fopen(profile_path.c_str(), "wb");
+
+
     printf("Ave Opt Latency : %.3f ms\n", opt / i);
     printf("Ave Latency : %.3f ms\n", total / i);
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
+
+    fprintf(f_profile,"ncentroids:%d\n", ncentroids);
+
+    fprintf(f_profile, "Real Tran:\n");
+    for(auto i = record_tran.begin(); i != record_tran.end() ; i++){
+        fprintf(f_profile, "%d:%f\n", i->first, i->second * 1000);
+    }
+
+    fprintf(f_profile, "Real Com:\n");
+    for(auto i = record_com.begin(); i != record_com.end() ; i++){
+        fprintf(f_profile, "%d,%d:%f\n", i->query, i->dataCnt, i->value * 1000);
+    }
+
+    int end = index->pipe_provider->pageNum_;
+    end = std::min(end, index->pipe_cluster->bnlist);
+
+    for(int i = 1 ; i < end; i++){
+        float real = index->profiler->queryTran(i);
+        profile_tran[i] = real;
+    }
+
+    fprintf(f_profile, "Profile Tran:\n");
+    for(auto i = profile_tran.begin(); i != profile_tran.end() ; i++){
+        fprintf(f_profile, "%d:%f\n", i->first, i->second);
+    }
+
+    fprintf(f_profile, "Profile Com:\n");
+    for(auto i = record_com.begin(); i != record_com.end() ; i++){
+        fprintf(f_profile, "%d,%d:%f\n", i->query, i->dataCnt, index->profiler->queryCom(i->query, i->dataCnt));
+    }
+
+    fclose(f_profile);
 
     delete[] xq;
     delete[] gt;

@@ -43,7 +43,9 @@ struct PipeProfiler{
 
     double queryTran(int pageCnt);
 
-    double queryCom(int dataCnt, int split = 1);
+    double queryCom(int queryCnt, int dataCnt);
+
+    int decideSplit(int queryCnt, int dataCnt);
 
 protected:
     
@@ -67,7 +69,7 @@ protected:
 
         void train();
 
-        std::map<unsigned long, double> computeTimeDict;
+        std::map<int, std::map<int, double>> computeTimeDict;
 
         bool istrained = false;
 
@@ -109,7 +111,9 @@ public:
 
     bool verbose = false;
 
-    int maxClus;
+    int maxDataCnt;
+
+    int nqMax;
 
 };
 

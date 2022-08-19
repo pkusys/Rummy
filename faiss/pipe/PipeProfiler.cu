@@ -29,6 +29,8 @@ PipeProfiler::PipeProfiler(IndexIVFPipe *index)
         index_ = index;
         pc_ = index->pipe_cluster;
         pgr_ = index->pipe_provider;
+        maxDataCnt = 4096 * 8 * 2;
+        nqMax = 1024;
         trans = new TranProfiler(this);
         coms = new ComProfiler(this);
     }
@@ -61,12 +63,14 @@ void PipeProfiler::save(const char* path_){
     fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
 
     fprintf(fp, "{coms}\n");
-    for (auto it = coms->computeTimeDict.begin(); it != coms->computeTimeDict.end(); it++){
-        int dataCnt = (it->first) >> 32;
-        int split = (it->first) & 0xffffffff;
-        fprintf(fp, "%d %d %lf\n", dataCnt, split, it->second);
+    for (auto its = coms->computeTimeDict.begin(); its != coms->computeTimeDict.end(); its++){
+        fprintf(fp, "%d\n", its->first);
+        for(auto it = its->second.begin(); it != its->second.end(); it++){
+            fprintf(fp, "%d %lf\n", it->first, it->second);
+        }
+        fprintf(fp,"%d %lf\n", 0, 0.);
     }
-    fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
+    fprintf(fp, "%d\n", 0);
     
     fprintf(fp,"{the-end}\n");
 
@@ -108,18 +112,23 @@ void PipeProfiler::load(const char* path_){
     // printf("%s\n", buffer);
 
     while(true){
-        unsigned long key;
-        int dataCnt;
-        int split;
-
-        double value;
-        fscanf(fp, "%d %d %lf", &dataCnt, &split, &value);
-        key = ((unsigned long)dataCnt << 32) + (unsigned long)split;
-        // printf("%zu %lf\n", key, value);
-        if(key == 0){
+        int query;
+        fscanf(fp, "%d", &query);
+        if(query == 0){
             break;
         }
-        coms->computeTimeDict[key] = value;
+        std::map<int, double> empty_map;
+        coms->computeTimeDict[query] = std::move(empty_map);
+
+        while(true){
+            int key;
+            double value;
+            fscanf(fp, "%d %lf", &key, &value);
+            if(key == 0){
+                break;
+            }
+            coms->computeTimeDict[query][key] = value;
+        }
     }
     
     fscanf(fp, "%s", buffer);
@@ -165,70 +174,128 @@ double PipeProfiler::queryTran(int pageCnt) {
     return realTime;
 }
 
-double PipeProfiler::queryCom(int dataCnt, int split) {
+double PipeProfiler::queryCom(int queryCnt, int dataCnt) {
     FAISS_ASSERT(coms->istrained);
-    bool goodsplit = false;
-    for(int i = 1; i <= 256; i *= 2) {
-        if(split == i) {
-            goodsplit = true;
-            break;
-        }
-    }
-    FAISS_ASSERT(goodsplit == true);
-    unsigned long key = (((unsigned long)dataCnt) << 32) + split;
 
-    auto target = coms->computeTimeDict.find(key);
-    if (target != coms->computeTimeDict.end()) {
-        return target->second;
-    }
-    
-    auto up = coms->computeTimeDict.lower_bound(key);
-    auto down = up;
-    bool found = false;
-    if(up == coms->computeTimeDict.begin()){
-        up++;
-        while(up != coms->computeTimeDict.end()){
-            int split_ = up->first & 0xffffffff;
-            if(split_ == split){
-                found = true;
-                break;
+    auto sub_map = coms->computeTimeDict.find(queryCnt);
+
+    auto up_sub_map = coms->computeTimeDict.lower_bound(queryCnt);
+
+    if (sub_map != coms->computeTimeDict.end() || up_sub_map == coms->computeTimeDict.end() || up_sub_map == coms->computeTimeDict.begin()) {
+
+        if(sub_map == coms->computeTimeDict.end()){
+            if(up_sub_map == coms->computeTimeDict.end()){
+                sub_map--;
             }
+            else{
+                sub_map = coms->computeTimeDict.begin();
+            }
+        }
+
+        auto target = sub_map->second.find(dataCnt);
+        if(target != sub_map->second.end()){
+            return target->second;
+        }
+        auto up = sub_map->second.lower_bound(dataCnt);
+        auto down = up;
+        if(up == sub_map->second.begin()){
             up++;
+            FAISS_ASSERT(up != sub_map->second.end());
         }
-        if(!found){
-            printf("error1:%d\n",dataCnt);
+        else{
+            if(up == sub_map->second.end()){
+                up--;
+                down = up;
+            }
+            down--;
         }
-        FAISS_ASSERT(found);
+
+        double upTime = up->second;
+        double downTime = down->second;
+        unsigned long upDataCnt = up->first;
+        unsigned long downDataCnt = down->first;
+        double realTime = 
+            downTime + (upTime - downTime) * (dataCnt - (double)downDataCnt) / ((double)upDataCnt - (double)downDataCnt);
+        return realTime;
+    }
+
+
+    auto down_sub_map = up_sub_map;
+    down_sub_map--;
+
+    int upDataCnt;
+    int downDataCnt;
+
+    double downTime = 0.;
+    double upTime = 0.;
+
+    auto up_target = up_sub_map->second.find(dataCnt);
+    if(up_target != up_sub_map->second.end()){
+        downTime += up_target->second;
+        upTime += up_target->second;
+        upDataCnt = up_target->first;
+        downDataCnt = up_target->first;
     }
     else{
-        if(up == coms->computeTimeDict.end()){
-            up--;
+        auto up = up_sub_map->second.lower_bound(dataCnt);
+        auto down = up;
+        if(up == up_sub_map->second.begin()){
+            up++;
+            FAISS_ASSERT(up != up_sub_map->second.end());
         }
-        down = up;   
-
-        while (down != coms->computeTimeDict.begin()) {
-            down--;
-            int split_ = down->first & 0xffffffff;
-            if (split_ == split){
-                found = true;
-                break;
+        else{
+            if(up == up_sub_map->second.end()){
+                up--;
+                down = up;
             }
+            down--;
         }
-        if(!found){
-            printf("error2:%d\n",dataCnt);
-        }
-        FAISS_ASSERT(found);
+        downTime += down->second;
+        upTime += up->second;
+        upDataCnt = up->first;
+        downDataCnt = down->first;
     }
-    
 
 
-    double upTime = up->second;
-    double downTime = down->second;
-    unsigned long upDataCnt = up->first >> 32;
-    unsigned long downDataCnt = down->first >> 32;
-    double realTime = 
-        downTime + (upTime - downTime) * (dataCnt - (double)downDataCnt) / ((double)upDataCnt - (double)downDataCnt);
-    return realTime;
+    auto down_target = down_sub_map->second.find(dataCnt);
+    if(down_target != down_sub_map->second.end()){
+        downTime += down_target->second;
+        upTime += down_target->second;
+        //upDataCnt = down_target->first;
+        //downDataCnt = down_target->first;
+    }
+    else{
+        auto up = down_sub_map->second.lower_bound(dataCnt);
+        auto down = up;
+        if(up == down_sub_map->second.begin()){
+            up++;
+            FAISS_ASSERT(up != down_sub_map->second.end());
+        }
+        else{
+            if(up == down_sub_map->second.end()){
+                up--;
+                down = up;
+            }
+            down--;
+        }
+        downTime += down->second;
+        upTime += up->second;
+        //upDataCnt = up->first;
+        //downDataCnt = down->first;
+    }
+
+    downTime /= 2;
+    upTime /= 2;
+
+    if(upDataCnt == downDataCnt){
+        return downTime;
+    }
+    else{
+        double realTime = 
+            downTime + (upTime - downTime) * (dataCnt - (double)downDataCnt) / ((double)upDataCnt - (double)downDataCnt);
+        return realTime;
+    }
+  
  }
 
 
@@ -295,20 +362,31 @@ void PipeProfiler::TranProfiler::train(){
     istrained = true;
 }
 
+int PipeProfiler::decideSplit(int queryCnt, int dataCnt){
+        int split = 1;
+        // Find an appropriate split num
+        if (pc_->Min_Block > 0){
+            while(dataCnt * split < pc_->Min_Block){
+                split = split << 1;
+            }
+        }
+        return split;
+    }
+
 
 void PipeProfiler::ComProfiler::train(){
     // param space
 
-    int nt = 16;
+    int ntmax = p -> nqMax;
     int d = p->pc_->d;
     int k = 10;
 
 
     std::mt19937 rng;
-    float *trainvecs = new float[nt * d];
+    float *trainvecs = new float[ntmax * d];
     {
         std::uniform_real_distribution<> distrib;
-        for (size_t i = 0; i < nt * d; i++) {
+        for (size_t i = 0; i < ntmax * d; i++) {
             trainvecs[i] = distrib(rng);
         }
     }
@@ -371,63 +449,67 @@ void PipeProfiler::ComProfiler::train(){
 
     void** ListIndexP = ListIndexP_.devicedata();
 
-    int* queryids = (int*)malloc(sizeof(int) * nt);
-    for (int i = 0; i < nt; i++){
+    int* queryids = (int*)malloc(sizeof(int) * ntmax);
+    for (int i = 0; i < ntmax; i++){
         queryids[i] = i;
     }
 
-    faiss::gpu::PipeTensor<int, 1, true> queryids_gpu({nt}, pc);
-    queryids_gpu.copyFrom(queryids, h2d_stream);
-    queryids_gpu.setResources(pc, pgr);
-    queryids_gpu.memh2d(h2d_stream);
+    int nq = 1;
+    while(nq <= ntmax){
 
-    
-    faiss::gpu::PipeTensor<float, 2, true> queries_gpu({nt, d}, pc);
-    queries_gpu.copyFrom(trainvecs, h2d_stream);
-    queries_gpu.setResources(pc, pgr);
-    queries_gpu.memh2d(h2d_stream);
+        faiss::gpu::PipeTensor<int, 1, true> queryids_gpu({nq}, pc);
+        queryids_gpu.copyFrom(queryids, h2d_stream);
+        queryids_gpu.setResources(pc, pgr);
+        queryids_gpu.memh2d(h2d_stream);
 
-    bool dir;
-    if (p->index_->metric_type == faiss::MetricType::METRIC_L2) {
-        faiss::gpu::L2Distance metr;
-        dir = metr.kDirection;                                            
-    } else if (p->index_->metric_type == faiss::MetricType::METRIC_INNER_PRODUCT) {
-        faiss::gpu::IPDistance metr;          
-        dir = metr.kDirection;
-    }
+        
+        faiss::gpu::PipeTensor<float, 2, true> queries_gpu({nq, d}, pc);
+        queries_gpu.copyFrom(trainvecs, h2d_stream);
+        queries_gpu.setResources(pc, pgr);
+        queries_gpu.memh2d(h2d_stream);
 
-    // query*cluster
-    
+        bool dir;
+        if (p->index_->metric_type == faiss::MetricType::METRIC_L2) {
+            faiss::gpu::L2Distance metr;
+            dir = metr.kDirection;                                            
+        } else if (p->index_->metric_type == faiss::MetricType::METRIC_INNER_PRODUCT) {
+            faiss::gpu::IPDistance metr;          
+            dir = metr.kDirection;
+        }
 
-    int nq = nt;//fixed: 16
-    int clus = 1;
-    int split = 1;
-    p->maxClus = 4096 * 8;
+        // query*cluster
+        
 
-    int* query_bcluster_matrix = new int[p->maxClus * 16];
+        int maxClus = p->maxDataCnt / nq;
 
-    for (int i = 0; i < p->maxClus; i++) {
-        query_bcluster_matrix[i] = i % listNum;
-    }
-    for (int i = 0 ;i < 16; i++) {
-        memcpy(query_bcluster_matrix + p->maxClus * i, query_bcluster_matrix, sizeof(int) * p->maxClus);
-    }
+        int* query_bcluster_matrix = new int[maxClus * nq];
 
-    faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, p->maxClus}, pc);
-    query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
-    query_cluster_matrix_gpu.setResources(pc, pgr);
-    query_cluster_matrix_gpu.memh2d(h2d_stream);
+        for (int i = 0; i < maxClus; i++) {
+            //if(i % 2 == 1){
+            //    query_bcluster_matrix[i] = -1;
+            //    continue;
+            //}
+            query_bcluster_matrix[i] = i % listNum;
+        }
+        for (int i = 0 ;i < nq; i++) {
+            memcpy(query_bcluster_matrix + maxClus * i, query_bcluster_matrix, sizeof(int) * maxClus);
+        }
 
-    cudaStreamSynchronize(h2d_stream);
+        faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, maxClus}, pc);
+        query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
+        query_cluster_matrix_gpu.setResources(pc, pgr);
+        query_cluster_matrix_gpu.memh2d(h2d_stream);
 
+        cudaStreamSynchronize(h2d_stream);
 
+        std::map<int, double> empty_map;
+        computeTimeDict[nq] = std::move(empty_map);
 
-
-    while (split <= 256) {
-        clus = 1;
-        while (clus <= p->maxClus / split)
+        int clus = 1;
+        while (clus <= maxClus)
         {
-            
+            int dataCnt = nq * clus;
+            int split = p->decideSplit(nq, dataCnt);
 
             faiss::gpu::PipeTensor<float, 2, true> out_distances({nq, (int)k}, pc);
             out_distances.setResources(pc, pgr);
@@ -465,17 +547,16 @@ void PipeProfiler::ComProfiler::train(){
             cudaStreamSynchronize(exe_stream);
 
             double t1 = timepoint();
-            int dataCnt = nq * clus;
-            unsigned long key = (((unsigned long)dataCnt) << 32) + split; 
             double tCnt = t1 - t0;
-            computeTimeDict[key] = tCnt;
+            computeTimeDict[nq][dataCnt] = tCnt;
             clus *= 2 ;
-            //printf("dataCnt:%d, split:%d. Result:%lf\n", dataCnt, split, tCnt);
+            printf("query:%d, dataCnt:%d, split:%d. Result:%lf\n", nq, dataCnt, split, tCnt);
         }
 
-        
-        split *= 2;
+        nq *= 2;
+        delete[] query_bcluster_matrix;
     }
+
     
     for (int j = 0; j < mb.pages.size(); j++){
         int clus = j;
@@ -485,7 +566,7 @@ void PipeProfiler::ComProfiler::train(){
     }
     
     delete[] trainvecs;
-    delete[] query_bcluster_matrix;
+    
     free(queryids);    
     istrained = true;
 }
