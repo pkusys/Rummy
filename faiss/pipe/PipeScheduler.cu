@@ -789,12 +789,13 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
         param->index = this->index_;
         param->device = device;
 
-        pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
+        computation(param);
+        //pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
 
     }
     for (int i = 0 ; i < num_group; i++){
-        int res = pthread_join(pc_->com_threads[i], NULL);
-        FAISS_ASSERT(res == 0);
+        //int res = pthread_join(pc_->com_threads[i], NULL);
+        //FAISS_ASSERT(res == 0);
     }
 
     // Check all exec threads
@@ -931,7 +932,7 @@ float PipeScheduler::measure_com(int sta, int end){
                 query_set.insert(bcluster_query_matrix[order * i + j]);
             }
         }
-        return profiler->queryCom(query_set.size(), dataCnt);
+        return profiler->queryCom(16, dataCnt);
     }
     else {
         int dataCnt = 0;

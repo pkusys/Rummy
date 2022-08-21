@@ -482,25 +482,7 @@ void PipeProfiler::ComProfiler::train(){
 
         int maxClus = p->maxDataCnt / nq;
 
-        int* query_bcluster_matrix = new int[maxClus * nq];
 
-        for (int i = 0; i < maxClus; i++) {
-            //if(i % 2 == 1){
-            //    query_bcluster_matrix[i] = -1;
-            //    continue;
-            //}
-            query_bcluster_matrix[i] = i % listNum;
-        }
-        for (int i = 0 ;i < nq; i++) {
-            memcpy(query_bcluster_matrix + maxClus * i, query_bcluster_matrix, sizeof(int) * maxClus);
-        }
-
-        faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, maxClus}, pc);
-        query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
-        query_cluster_matrix_gpu.setResources(pc, pgr);
-        query_cluster_matrix_gpu.memh2d(h2d_stream);
-
-        cudaStreamSynchronize(h2d_stream);
 
         std::map<int, double> empty_map;
         computeTimeDict[nq] = std::move(empty_map);
@@ -508,6 +490,57 @@ void PipeProfiler::ComProfiler::train(){
         int clus = 1;
         while (clus <= maxClus)
         {
+
+            int* query_bcluster_matrix = new int[2 * clus * nq];
+
+            std::default_random_engine generator;
+            std::normal_distribution<double> distribution(clus, 0.8 * (double)clus);
+
+
+            for (int i = 1; i < nq; i += 2) {
+                int number = rand() % (2 * clus);//(int)distribution(generator);
+                if(number >= 2 * clus){
+                    number = 2 * clus - 1;
+                }
+                else if(number == 0){
+                    number = 1;
+                }
+                for(int j = 0 ; j < 2 * clus ; j++){
+                    if(j < number){
+                        query_bcluster_matrix[i * 2 * clus + j] = j % std::min(clus, listNum);
+                    }
+                    else{
+                        query_bcluster_matrix[i * 2 * clus + j] = -1;
+                    }
+                }
+                for(int j = 0 ; j < 2 * clus ; j++){
+                    if(j < 2 * clus - number){
+                        query_bcluster_matrix[(i - 1)  * 2 * clus + j] = j % std::min(clus, listNum);
+                    }
+                    else{
+                        query_bcluster_matrix[(i - 1) * 2 * clus + j] = -1;
+                    }
+                }
+                
+            }
+            if(nq % 2 == 1){
+                for(int j = 0 ; j < 2 * clus ; j++){
+                    if(j < clus){
+                        query_bcluster_matrix[(nq - 1)  * 2 * clus + j] = j % std::min(clus, listNum);
+                    }
+                    else{
+                        query_bcluster_matrix[(nq - 1) * 2 * clus + j] = -1;
+                    }
+                }
+            }
+
+            faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, 2 * clus}, pc);
+            query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
+            query_cluster_matrix_gpu.setResources(pc, pgr);
+            query_cluster_matrix_gpu.memh2d(h2d_stream);
+
+            cudaStreamSynchronize(h2d_stream);
+
             int dataCnt = nq * clus;
             int split = p->decideSplit(nq, dataCnt);
 
@@ -521,16 +554,14 @@ void PipeProfiler::ComProfiler::train(){
 
             double t0 = timepoint();
 
-            auto query_cluster_matrix_gpu_ = query_cluster_matrix_gpu.narrow(1, 0, clus);
-
             faiss::gpu::runKernelComputeReduce(
                             d,
                             k,
                             nq,
-                            clus,
+                            2 * clus,
                             queryids_gpu,
                             queries_gpu,
-                            query_cluster_matrix_gpu_,
+                            query_cluster_matrix_gpu,
                             ListDataP,
                             p->index_->ivfPipeConfig_.indicesOptions,
                             ListLength,
@@ -551,10 +582,11 @@ void PipeProfiler::ComProfiler::train(){
             computeTimeDict[nq][dataCnt] = tCnt;
             clus *= 2 ;
             printf("query:%d, dataCnt:%d, split:%d. Result:%lf\n", nq, dataCnt, split, tCnt);
+            delete[] query_bcluster_matrix;
         }
 
         nq *= 2;
-        delete[] query_bcluster_matrix;
+        
     }
 
     

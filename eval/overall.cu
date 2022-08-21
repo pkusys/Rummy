@@ -11,6 +11,7 @@
 #include <random>
 #include <cassert>
 #include <cstring>
+#include <set>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -191,15 +192,23 @@ int main(int argc,char **argv){
 
     omp_set_num_threads(8);
 
-    int ncentroids = 64 * 4;
+    int ncentroids;
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index;
-    if (p1 == "text")
+    if (p1 == "text"){
+        ncentroids = 64;
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
-    else
+    }
+    else if (p1 == "sift"){
+        ncentroids = 64 * 2;
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
-
+    }
+    else if(p1 == "deep"){
+        ncentroids = 64 * 4;
+        index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
+    }
+    
     FAISS_ASSERT (config.interleavedLayout == true);
 
     size_t d;
@@ -345,13 +354,25 @@ int main(int argc,char **argv){
     fprintf(f_profile,"ncentroids:%d\n", ncentroids);
 
     fprintf(f_profile, "Real Tran:\n");
+
+    std::map<int, std::pair<int, double>> com_keys;
+
     for(auto i = record_tran.begin(); i != record_tran.end() ; i++){
         fprintf(f_profile, "%d:%f\n", i->first, i->second * 1000);
     }
+    fprintf(f_profile, "%d:%f\n", 0, 0.);
 
-    fprintf(f_profile, "Real Com:\n");
+
+    
     for(auto i = record_com.begin(); i != record_com.end() ; i++){
-        fprintf(f_profile, "%d,%d:%f\n", i->query, i->dataCnt, i->value * 1000);
+        if(com_keys.find(i->dataCnt) != com_keys.end()){
+            com_keys[i->dataCnt].second += i->value * 1000;
+            com_keys[i->dataCnt].first += 1;
+        }
+        else{
+            com_keys[i->dataCnt].first = 1;
+            com_keys[i->dataCnt].second = i->value * 1000;
+        }
     }
 
     int end = index->pipe_provider->pageNum_;
@@ -366,11 +387,19 @@ int main(int argc,char **argv){
     for(auto i = profile_tran.begin(); i != profile_tran.end() ; i++){
         fprintf(f_profile, "%d:%f\n", i->first, i->second);
     }
+    fprintf(f_profile, "%d:%f\n", 0, 0.);
+
+    fprintf(f_profile, "Real Com:\n");
+    for(auto i = com_keys.begin(); i != com_keys.end() ; i++){
+        fprintf(f_profile, "%d:%f\n", i->first, i->second.second/i->second.first);
+    }
+    fprintf(f_profile, "%d:%f\n", 0, 0.);
 
     fprintf(f_profile, "Profile Com:\n");
-    for(auto i = record_com.begin(); i != record_com.end() ; i++){
-        fprintf(f_profile, "%d,%d:%f\n", i->query, i->dataCnt, index->profiler->queryCom(i->query, i->dataCnt));
+    for(auto i = com_keys.begin(); i != com_keys.end() ; i++){
+        fprintf(f_profile, "%d:%f\n", i->first, index->profiler->queryCom(16, i->first));
     }
+    fprintf(f_profile, "%d:%f\n", 0, 0.);
 
     fclose(f_profile);
 
