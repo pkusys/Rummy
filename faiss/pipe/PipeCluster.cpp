@@ -49,7 +49,7 @@ float StdDev (std::vector<int> vec){
 
 PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes, 
             std::vector<float *> & pointers, std::vector<int*> & indexes, 
-            bool interleaved_) : stack_(PinTempSize){
+            bool interleaved_, bool pin) : stack_(PinTempSize){
     
     // Initialize some attributes
     nlist = nlist_;
@@ -91,8 +91,10 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     
     LRUtree_ = std::move(tmptree);
 
-    mallocPinnedMem();
-    // mallocNoPinnedMem();
+    if (pin)
+        mallocPinnedMem();
+    else
+        mallocNoPinnedMem();
 
     pthread_mutex_init(&resource_mutex, 0);
 

@@ -88,6 +88,7 @@ set(FAISS_SRC
   pipe/PipeKernel.cu
   pipe/PipeProfiler.cu
   pipe/PipeScheduler.cu
+  pipe/NaiveScheduler.cu
 )
 
 set(FAISS_HEADERS
@@ -190,6 +191,7 @@ set(FAISS_HEADERS
   pipe/PipeKernelImpl.cuh
   pipe/PipeProfiler.cuh
   pipe/PipeScheduler.h
+  pipe/NaiveScheduler.h
 )
 
 if(NOT WIN32)

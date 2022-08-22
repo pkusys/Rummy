@@ -83,6 +83,8 @@ struct IndexIVFPipe: Index {
     MetricType metric_type;
     float metric_arg; ///< argument of the metric type
 
+    bool use_pin_memory = true;
+
     using idx_t = int64_t;
     bool verbose;
 

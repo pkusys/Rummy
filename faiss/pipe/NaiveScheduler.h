@@ -19,12 +19,13 @@
 #include <faiss/pipe/PipeStructure.h>
 #include <faiss/pipe/PipeProfiler.cuh>
 #include <faiss/pipe/IndexIVFPipe.h>
+#include <faiss/pipe/PipeScheduler.h>
 
 namespace faiss{
 namespace gpu{
 
 // The class reorders the computation and divides the pipeline groups
-class PipeScheduler{
+class NaiveScheduler{
 protected:
     struct pipelinegroup{
         // Group slice
@@ -38,17 +39,29 @@ protected:
         float pre = 1e9;
     };
 
+    struct malloc_res{
+        void *pointer;
+
+        bool valid;
+
+        void* getPage(int id, size_t size){
+            float* p = (float *)pointer;
+            p += id * size;
+            return (void*)p;
+        }
+    };
+
 public:
     // construct function
-    PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
+    NaiveScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
             int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
             int* bcluster_query_matrix_, PipeProfiler* profiler_,
             int queryMax_, int clusMax_, bool free_ = true);
 
-    PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
+    NaiveScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label, bool free_ = true);
 
-    ~PipeScheduler();
+    ~NaiveScheduler();
 
     // Reorder the clusters to minimize the pipeline overhead
     void reorder();
@@ -135,6 +148,11 @@ public:
     // mutex for copy engine preemption
     pthread_mutex_t preemption_mutex;
 
+    // cluster address on gpu
+    std::unordered_map<int, void*> address;
+
+    malloc_res gpu_malloc(size_t size);
+
     bool preemption = true;
 
     // the group number
@@ -176,10 +194,5 @@ public:
 
 };
 
-
-void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt);
-
-void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt);
-
 } // namespace gpu
-} // namespace faiss
+}  // namespace faiss
