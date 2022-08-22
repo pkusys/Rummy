@@ -28,6 +28,429 @@ double elapsed() {
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
+/*******************************************************
+
+    QueryScheduler
+
+********************************************************/
+
+
+struct QueryParam{
+    QueryScheduler* sche;
+    IndexIVFPipe* index;
+    int threadId;
+    int k;
+    int device;
+};
+
+// Thread function: computation
+void *queryComputation(void *arg){
+    QueryParam* param = (QueryParam *)arg;
+    double compu_time = 0.;
+    double t, tt;
+
+    // Destruct the param
+    PipeCluster* pc = param->sche->pc_;
+    PipeGpuResources* pgr = param->sche->pgr_;
+    int k = param->k;
+    int sta = param->threadId * param->sche->queryMax / param->sche->num_group;
+    int end = (param->threadId + 1) * param->sche->queryMax / param->sche->num_group;
+    int cnt = end - sta;
+
+    DeviceScope scope(param->device);
+
+
+    int *queryIds = new int[cnt];
+    for(int i = 0; i < cnt; i++){
+        queryIds[i] = sta + i;
+    }
+
+    int dataCnt = 0;
+    for(int i = sta ; i < end ; i++){
+        dataCnt += param->sche->bcluster_per_query[i];
+    }
+
+    int clusMax = param->sche->clusMax;
+    // Prepare the data
+    std::vector<void*> ListDataP_vec(clusMax);
+    std::vector<void*> ListIndexP_vec(clusMax);
+    std::vector<int> ListLength_vec(clusMax);
+
+    std::map<int, int>& clusters = param->sche->thread_clusters[param->threadId];
+    // Noneed mutex here
+    for(auto clu = clusters.begin(); clu != clusters.end(); clu++) {
+        if(clu->second == 0){
+            continue;
+        }
+        int cluid = clu->first;
+        int pageid = pc->clu_page[cluid];
+        ListDataP_vec[cluid] = pgr->getPageAddress(pageid);
+        ListIndexP_vec[cluid] = (void *)((float*)(ListDataP_vec[cluid]) + 
+                pc->d * pc->BCluSize[cluid]);
+        ListLength_vec[cluid] = pc->BCluSize[cluid];
+    }
+    for(int i = sta; i < end ; i++){
+        for(int j = 0; j < param->sche->maxbcluster_per_query; j++){
+            if(param->sche->query_bcluster_matrix[i * param->sche->maxbcluster_per_query + j] != -1){
+                FAISS_ASSERT(clusters[param->sche->query_bcluster_matrix[i * param->sche->maxbcluster_per_query + j]] > 0);
+            }
+        }
+    }
+    // Only one com thread is allowed in
+    pthread_mutex_lock(&(pc->com_mutex));
+    pthread_mutex_lock(&(pc->resource_mutex));
+    t = elapsed();
+
+    auto exec_stream = pgr->getExecuteStream(param->device);
+    auto d2h_stream = pgr->getCopyD2HStream(param->device);
+
+    int idx = param->sche->threads++;
+    param->sche->dis_buffer[idx] = 
+        new PipeTensor<float, 2, true>({cnt, (int)k}, pc);
+    param->sche->dis_buffer[idx]->setResources(pc, pgr);
+    param->sche->dis_buffer[idx]->reserve();
+
+    param->sche->ids_buffer[idx] = 
+        new PipeTensor<int, 2, true>({cnt, (int)k}, pc);
+    param->sche->ids_buffer[idx]->setResources(pc, pgr);
+    param->sche->ids_buffer[idx]->reserve();
+
+    param->sche->thread_order[param->threadId] = idx;
+
+    pthread_mutex_lock(&(param->sche->preemption_mutex));
+    param->sche->preemption = false;
+    pthread_mutex_unlock(&(param->sche->preemption_mutex));
+
+    PipeTensor<void*, 1, true>* ListDataP_ = 
+        new PipeTensor<void*, 1, true>({clusMax}, pc);
+    ListDataP_->copyFrom(ListDataP_vec, exec_stream);
+    ListDataP_->setResources(pc, pgr);
+    ListDataP_->memh2d(exec_stream);
+
+    PipeTensor<void*, 1, true>*  ListIndexP_ =
+        new PipeTensor<void*, 1, true>({clusMax}, pc);
+    ListIndexP_->copyFrom(ListIndexP_vec, exec_stream);
+    ListIndexP_->setResources(pc, pgr);
+    ListIndexP_->memh2d(exec_stream);
+
+    PipeTensor<int, 1, true>* ListLength_ = 
+        new PipeTensor<int, 1, true>({clusMax}, pc);
+    ListLength_->copyFrom(ListLength_vec, exec_stream);
+    ListLength_->setResources(pc, pgr);
+    ListLength_->memh2d(exec_stream);
+
+    PipeTensor<int, 1, true>* queryids_gpu = 
+        new PipeTensor<int, 1, true>({cnt}, pc);
+    queryids_gpu->copyFrom(queryIds, exec_stream);
+    queryids_gpu->setResources(pc, pgr);
+    queryids_gpu->memh2d(exec_stream);
+
+    PipeTensor<int, 2, true>* query_cluster_matrix_gpu =
+        new PipeTensor<int, 2, true>({cnt, param->sche->maxbcluster_per_query}, pc);
+    query_cluster_matrix_gpu->copyFrom(param->sche->query_bcluster_matrix + sta * param->sche->maxbcluster_per_query, exec_stream);
+    query_cluster_matrix_gpu->setResources(pc, pgr);
+    query_cluster_matrix_gpu->memh2d(exec_stream);
+
+    pthread_mutex_lock(&(param->sche->preemption_mutex));
+    param->sche->preemption = true;
+    pthread_mutex_unlock(&(param->sche->preemption_mutex));
+
+    tt = elapsed();
+    // compu_time += tt - t;
+    pthread_mutex_unlock(&(pc->resource_mutex));
+    cudaStreamSynchronize(exec_stream);
+    t = elapsed();
+
+    int split = param->sche->profiler->decideSplit(cnt, dataCnt);
+    bool dir;
+    if (param->index->metric_type == MetricType::METRIC_L2) {
+        L2Distance metr;
+        dir = metr.kDirection;                                            
+    } else if (param->index->metric_type == MetricType::METRIC_INNER_PRODUCT) {
+        IPDistance metr;          
+        dir = metr.kDirection;
+    }
+    runKernelComputeReduce(
+            pc->d,
+            k,
+            cnt,
+            param->sche->maxbcluster_per_query,
+            *queryids_gpu,
+            *(param->sche->queries_gpu),
+            *query_cluster_matrix_gpu,
+            ListDataP_->devicedata(),
+            param->index->ivfPipeConfig_.indicesOptions,
+            ListLength_->devicedata(),
+            ListIndexP_->devicedata(),
+            param->index->metric_type,
+            dir,
+            *(param->sche->dis_buffer[idx]),
+            *(param->sche->ids_buffer[idx]),
+            pc,
+            pgr,
+            param->device,
+            split);
+    cudaStreamSynchronize(exec_stream);
+
+    param->sche->dis_buffer[idx]->memd2h(d2h_stream);
+    param->sche->ids_buffer[idx]->memd2h(d2h_stream);
+
+    cudaStreamSynchronize(d2h_stream);
+
+    // Delete the allocated Tensor in order
+    delete query_cluster_matrix_gpu;
+    delete queryids_gpu;
+    delete ListLength_;
+    delete ListIndexP_;
+    delete ListDataP_;
+
+    //dataCnt = shape.first * shape.second;
+    tt = elapsed();
+    float real_com = tt - t;
+    compu_time += real_com;
+
+    param->sche->com_time += compu_time;
+
+    pthread_mutex_unlock(&(pc->com_mutex));
+
+    // Change page info
+    pthread_mutex_lock(&(pc->resource_mutex));
+
+    for(auto clu = clusters.begin(); clu != clusters.end(); clu++) {
+        if(clu->second == 0){
+            continue;
+        }
+        int cluid = clu->first;
+        int page = pc->clu_page[cluid];
+        int lrucnt = clu->second;
+        pc->addGlobalCount(cluid, page, lrucnt);
+        pc->setCntDevice(cluid, page, false);
+    }
+
+    pthread_mutex_unlock(&(pc->resource_mutex));
+
+    delete[] queryIds;
+
+    return((void *)0);
+}
+
+QueryScheduler::QueryScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
+            int n, float *xq, int k, float *dis, int *label, int grain_, bool free_)
+            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n){
+                grain = grain_;
+                DeviceScope *scope;
+                if(index != nullptr)
+                    scope = new DeviceScope(index->ivfPipeConfig_.device);
+
+                pthread_mutex_init(&preemption_mutex, 0);
+
+                int actual_nprobe;
+                
+                auto t0 = elapsed();
+                index->sample_list(n, xq, &coarse_dis, &ori_idx,\
+                    &bcluster_per_query, &actual_nprobe, &query_bcluster_matrix, &maxbcluster_per_query,\
+                    &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
+                    &bcluster_query_matrix);
+                auto t1 = elapsed();
+                printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
+
+
+                t0 = t1;
+                
+                num_group = n / grain;
+
+                // Initialize the computation threads
+                pc_->com_threads.resize(num_group);
+                
+
+                process(n, xq, k, dis, label);
+
+                t1 = elapsed();
+                printf("Process Time: %.3f ms\n", (t1 - t0)*1000);
+                t0 = t1;
+
+                if(scope != nullptr){
+                    delete scope;
+                }    
+
+            }
+
+QueryScheduler::~QueryScheduler(){
+    DeviceScope* scope;
+    if(index_ != nullptr){
+        scope = new DeviceScope(index_->ivfPipeConfig_.device);
+    }
+    // Free the input resource
+    if(free){
+        delete[] coarse_dis;
+        delete[] ori_idx;
+        delete[] bcluster_per_query;
+        delete[] query_bcluster_matrix;
+
+        delete[] bcluster_list;
+        delete[] query_per_bcluster;
+        delete[] bcluster_query_matrix;
+    }
+
+    if (queries_gpu != nullptr){
+        delete queries_gpu;
+    }
+
+    pthread_mutex_destroy(&preemption_mutex);
+
+    // Free the PipeTensor in order
+    if(scope != nullptr){
+        delete scope;
+    }
+}
+
+void QueryScheduler::process(int n, float *xq, int k, float *dis, int *label){
+
+    int device = index_->ivfPipeConfig_.device;
+    auto h2d_stream = pgr_->getCopyH2DStream(device);
+
+    queryMax = n;
+
+    DeviceScope scope(device);
+    // Create queries Tensor
+    this->queries_gpu = new PipeTensor<float, 2, true>({n, this->pc_->d}, pc_);
+    queries_gpu->copyFrom((float*)xq, pgr_->getExecuteStream(device));
+    queries_gpu->setResources(pc_, pgr_);
+    queries_gpu->memh2d(pgr_->getExecuteStream(device));
+
+    // Initialize the buffer
+    dis_buffer.resize(num_group);
+    ids_buffer.resize(num_group);
+    thread_clusters.resize(num_group);
+    thread_order.resize(num_group);
+
+    clusMax = pc_->bnlist;
+
+    std::vector<QueryParam> params(num_group);
+    // loop over groups
+    for (int i = 0 ; i < num_group; i++){
+        int sta = batch_size * i / num_group;
+        int end = batch_size * (i + 1) / num_group;
+        
+        FAISS_ASSERT(end > sta);
+
+        // Transmission
+        std::map<int,int>& clusters = thread_clusters[i];
+        for(int j = 0 ; j < clusMax; j++){
+            clusters[j] = 0;
+        }
+        std::vector<int> noresident;
+        noresident.resize(clusMax);
+        int num = 0;
+        for (int c = sta; c < end; c++){
+            for(int j = 0; j < maxbcluster_per_query ; j++){
+                if(query_bcluster_matrix[c * maxbcluster_per_query + j] != -1){
+                    FAISS_ASSERT(query_bcluster_matrix[c * maxbcluster_per_query + j] < clusMax && query_bcluster_matrix[c * maxbcluster_per_query + j] >=0);
+                    clusters[query_bcluster_matrix[c * maxbcluster_per_query + j]] ++;
+                }
+            }
+        }
+        pthread_mutex_lock(&(pc_->resource_mutex));
+        for (auto clu = clusters.begin(); clu != clusters.end(); clu++){
+            if (clu->second == 0){
+                continue;
+            }
+            int cluid = clu->first;
+            bool che = pc_->readonDevice(cluid);
+            if (!che){
+                noresident[num] = cluid;
+                num++;
+            }
+            else{
+                int page = pc_->clu_page[cluid];
+                FAISS_ASSERT(page >= 0);
+                pc_->setCntDevice(cluid, page, true);
+            }
+        }
+        pthread_mutex_unlock(&(pc_->resource_mutex));
+        // Allocate pages and transmission
+        if (num > 0){
+            int wait_time = 0;
+            while (true){
+                pthread_mutex_lock(&(pc_->resource_mutex));
+                MemBlock mb = pgr_->allocMemory(num);
+
+                if (mb.valid){
+                    for (int j = 0; j < num; j++){
+                        int clus = noresident[j];
+                        pgr_->pageinfo[mb.pages[j]] = clus;
+                        pc_->setonDevice(clus, mb.pages[j], true);
+                        pc_->setCntDevice(clus, mb.pages[j], true);
+                        pc_->clu_page[clus] = mb.pages[j];
+                        // printf(" [%d, %d] ", mb.pages[j], clus);
+                        // p->pc_->addGlobalCount(clus, mb.pages[j], 1);
+                    }
+                    pthread_mutex_unlock(&(pc_->resource_mutex));
+                    // Memory transfer
+                    // Use default stream here (no need to manually sync)
+                    auto tt0 = elapsed();
+                    for (int j = 0; j < num; j++){
+                        while(true){
+                            pthread_mutex_lock(&(preemption_mutex));
+                            bool che = preemption;
+                            pthread_mutex_unlock(&(preemption_mutex));
+                            if (che)
+                                break;
+                        }
+                        pgr_->memcpyh2d(mb.pages[j], h2d_stream);
+                    }
+                    float real_tran = elapsed() - tt0;
+                    com_transmission += real_tran;
+                    break;
+                }
+                else{
+                    if (wait_time > max_wait){
+                        FAISS_THROW_MSG("No enough memory for this granularity.");
+                    }
+                    pthread_mutex_unlock(&(pc_->resource_mutex));
+                    usleep(wait_interval);
+                    wait_time += wait_interval;
+                }
+            }
+        }
+
+        // Start computation
+        QueryParam *param = &(params[i]);
+        param->sche = this;
+        param->threadId = i;
+        param->k = k;
+        param->index = this->index_;
+        param->device = device;
+        pthread_create(&(pc_->com_threads[i]), NULL, queryComputation, param);
+
+    }
+    for (int i = 0 ; i < num_group; i++){
+        int sta = batch_size * i / num_group;
+        int end = batch_size * (i + 1) / num_group;
+        int cnt = end - sta;
+        int res = pthread_join(pc_->com_threads[i], NULL);
+        FAISS_ASSERT(res == 0);
+        memcpy(dis + sta * k , dis_buffer[thread_order[i]]->hostdata(), cnt * k * sizeof(float));
+        memcpy(label + sta * k , ids_buffer[thread_order[i]]->hostdata(), cnt * k * sizeof(float));
+    }
+
+    for(int i = num_group - 1; i >= 0 ; i--){
+        delete ids_buffer[i];
+        delete dis_buffer[i];
+    }
+
+    return;
+
+}
+
+
+/*******************************************************
+
+    PipeScheduler
+
+********************************************************/
+
+
 struct Param{
     PipeScheduler* sche;
     IndexIVFPipe* index;
@@ -180,9 +603,6 @@ void *computation(void *arg){
             split);
     
     cudaStreamSynchronize(exec_stream);
-
-    param->sche->dis_buffer[idx]->memd2h(d2h_stream);
-    param->sche->dis_buffer[idx]->memd2h(d2h_stream);
 
     // Delete the allocated Tensor in order
     delete query_cluster_matrix_gpu;

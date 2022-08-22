@@ -23,17 +23,132 @@
 namespace faiss{
 namespace gpu{
 
-class Arecord{
+class QueryScheduler{
+protected:
+    struct pipelinegroup{
+        // Group slice
+        std::vector<int> content;
+
+        // Time (ms)
+        float time = 1e9;
+
+        float delay = 1e9;
+
+        float pre = 1e9;
+    };
+
 public:
-    int query;
-    int dataCnt;
-    float value;
-    Arecord(int query_, int dataCnt_, float value_){
-        query = query_;
-        dataCnt = dataCnt_;
-        value = value_;
-    }
+    // construct function
+    QueryScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
+            int n, float *xq, int k, float *dis, int *label, int grain_ = 1, bool free_ = true);
+
+    ~QueryScheduler();
+
+    // enter multi-threads
+    void process(int num, float *xq, int k, float *dis, int *label);
+
+public:
+
+    int grain = 1;
+
+    // the corresponding pipecluster
+    PipeCluster* pc_;
+
+    // the corresponding PipeGpurespurce
+    PipeGpuResources* pgr_;
+
+    // The corresponding index
+    IndexIVFPipe* index_;
+
+    // if free the sample params
+    bool free;
+
+    // If the first serch
+    bool cold_start;
+
+    // The size of the current batch queries
+    int batch_size = -1;
+
+    // the total number of query to compute
+    int queryMax;
+
+    // the total number of clusters the index keeps
+    int clusMax;
+
+    // Extra varibles to delete in deconstruct function
+    float* coarse_dis;
+    int* ori_idx;
+    int* bcluster_per_query;
+    int* query_bcluster_matrix;
+    int maxbcluster_per_query;
+
+    // the number of balanced clusters concerning
+    int bcluster_cnt;
+
+    // the id of balanced clusters concerning
+    int* bcluster_list;
+
+    // the number of queries referenced by each balanced cluster
+    int* query_per_bcluster;
+
+    // the max value of query_per_bcluster
+    int maxquery_per_bcluster;
+
+    // matrix of cluster x queries, shape of [bcluster_cnt][maxquery_per_bcluster],
+    // padding with -1
+    int* bcluster_query_matrix;
+
+    // reorder cluster list
+    std::vector<int> reorder_list;
+
+    // the size of the clusters already on gpu
+    int part_size;
+
+    // reverse map of bcluster_list
+    std::unordered_map<int, int> reversemap;
+
+    // mutex for copy engine preemption
+    pthread_mutex_t preemption_mutex;
+
+    bool preemption = true;
+
+    // the group number
+    int num_group;
+
+    int max_size;
+
+    // result of group algorithm
+    std::vector<int> groups;
+
+    PipeProfiler* profiler;
+
+    PipeTensor<float, 2, true> *queries_gpu = nullptr;
+
+    std::vector<PipeTensor<float, 2, true>* > dis_buffer;
+
+    std::vector<PipeTensor<int, 2, true>* > ids_buffer;
+
+    std::vector<std::map<int, int>> thread_clusters;
+
+    // Group queries idx
+    int max_split = -1;
+
+    // int max_quries_num = -1;
+
+    double com_time = 0.;
+
+    double com_transmission = 0.;
+
+    double group_time = 0.;
+
+    double reorder_time = 0.;
+
+    int threads = 0;
+    std::vector<int> thread_order;
+
 };
+
+
 
 
 // The class reorders the computation and divides the pipeline groups
