@@ -9,3 +9,6 @@ target_link_libraries(overall PRIVATE faiss)
 
 add_executable(nomemman EXCLUDE_FROM_ALL nomemman.cu)
 target_link_libraries(nomemman PRIVATE faiss)
+
+add_executable(overall_query EXCLUDE_FROM_ALL overall_query.cu)
+target_link_libraries(overall_query PRIVATE faiss)

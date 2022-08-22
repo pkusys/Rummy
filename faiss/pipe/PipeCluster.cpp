@@ -73,6 +73,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     isonDevice.resize(BCluSize.size());
     isPinnedDevice.resize(BCluSize.size());
     isComDevice.resize(BCluSize.size());
+    cntDevice.resize(BCluSize.size());
     Mem.resize(BCluSize.size());
     Balan_ids.resize(BCluSize.size());
     GlobalCount.resize(BCluSize.size());
@@ -84,6 +85,7 @@ PipeCluster::PipeCluster(int nlist_, int d_, std::vector<int> & sizes,
     std::fill(isComDevice.begin(), isComDevice.end(), false);
     std::fill(GlobalCount.begin(), GlobalCount.end(), 0);
     std::fill(clu_page.begin(), clu_page.end(), -1);
+    std::fill(cntDevice.begin(), cntDevice.end(), 0);
 
     // Construct the OnDevice cluster
     auto tmptree = std::unique_ptr<PipeAVLTree<int,int> >
@@ -423,9 +425,30 @@ void PipeCluster::setComDevice(int id, int page_id, bool b, bool avl){
     }
 }
 
+void PipeCluster::setCntDevice(int id, int page_id, bool b, bool avl){
+    // Set the status
+    if(b){
+        if(cntDevice[id] == 0){
+            setPinnedonDevice(id, page_id, b, avl);
+        }
+        cntDevice[id] ++;
+    }
+    else{
+        if(cntDevice[id] == 1){
+            setPinnedonDevice(id, page_id, b, avl);
+        }
+        cntDevice[id] --;
+    }
+}
+
 bool PipeCluster::readComDevice(int id){
     // Read the status
     return isComDevice[id];
+}
+
+bool PipeCluster::readCntDevice(int id){
+    // Read the status
+    return cntDevice[id];
 }
 
 bool PipeCluster::readPinnedonDevice(int id){

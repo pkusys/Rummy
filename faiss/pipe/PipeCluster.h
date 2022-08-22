@@ -53,9 +53,15 @@ public:
     // (avl means if you want to change the avl tree)
     void setonDevice(int clu_id, int page_id, bool b, bool avl = true);
 
+    // Increase or decrease the use cnt of a cluster.
+    void setCntDevice(int id, int page_id, bool b, bool avl = true);
+
     // Set the balanced clusters's status on computation 
     // (avl means if you want to change the avl tree)
     void setComDevice(int clu_id, int page_id, bool b, bool avl = true);
+
+    // Read the use cnt of a cluster.
+    bool readCntDevice(int id);
 
     // Return if the cluster is on device
     bool readonDevice(int id);
@@ -134,6 +140,9 @@ public: // For convenient, may change the mode to public later
 
     // Check if the cluster is currently executed by one query on device
     std::vector<bool> isComDevice;
+
+    // The number of threads sharing this page now
+    std::vector<int> cntDevice;
 
     /// LRU count
     std::vector<int> GlobalCount;
