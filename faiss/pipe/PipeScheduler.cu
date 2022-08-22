@@ -789,13 +789,12 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
         param->index = this->index_;
         param->device = device;
 
-        computation(param);
-        //pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
+        pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
 
     }
     for (int i = 0 ; i < num_group; i++){
-        //int res = pthread_join(pc_->com_threads[i], NULL);
-        //FAISS_ASSERT(res == 0);
+        int res = pthread_join(pc_->com_threads[i], NULL);
+        FAISS_ASSERT(res == 0);
     }
 
     // Check all exec threads
