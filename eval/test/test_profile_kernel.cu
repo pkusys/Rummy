@@ -91,19 +91,10 @@ void test_profile(faiss::IndexIVFPipe* index){
     }
 
     fprintf(fp, "{coms}\n");
-    for (int i = 1; i < 32 ; i++){
-        for (int j = 1; j < 64; j++){
-            double value = index->profiler->queryCom(i, j);
-            fprintf(fp, "%d,%d:%lf\n", i, j, value);
-            printf("%d,%d:%lf\n", i, j, value);
-        }
-    }
-    for (int i = 3; i < 2 * index->profiler->nqMax ; i*=2){
-        for (int j = 7; j < 2 * index->profiler->maxDataCnt; j*=2){
-            double value = index->profiler->queryCom(i, j);
-            fprintf(fp, "%d,%d:%lf\n", i, j, value);
-            printf("%d,%d:%lf\n", i, j, value);
-        }
+    for (int j = 3; j < 2 * index->profiler->maxDataCnt; j*=2){
+        double value = index->profiler->queryCom(j);
+        fprintf(fp, "%d:%lf\n", j, value);
+        printf("%d:%lf\n", j, value);   
     }
 
     fprintf(fp,"{the-end}\n");

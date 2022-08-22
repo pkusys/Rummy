@@ -311,7 +311,12 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    nq = 1000;
+    if(bs == 1){
+        nq = 1000;
+    }
+    else{
+        nq = 512 * 10;
+    }
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
@@ -397,7 +402,7 @@ int main(int argc,char **argv){
 
     fprintf(f_profile, "Profile Com:\n");
     for(auto i = com_keys.begin(); i != com_keys.end() ; i++){
-        fprintf(f_profile, "%d:%f\n", i->first, index->profiler->queryCom(16, i->first));
+        fprintf(f_profile, "%d:%f\n", i->first, index->profiler->queryCom(i->first));
     }
     fprintf(f_profile, "%d:%f\n", 0, 0.);
 

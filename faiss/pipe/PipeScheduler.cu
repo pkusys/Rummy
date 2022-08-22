@@ -919,8 +919,6 @@ float PipeScheduler::measure_tran(int num){
 float PipeScheduler::measure_com(int sta, int end){
     if (sta == end)
         return 0.;
-    // return 0.6 * (end - sta) * (float(reorder_list.size())/end) + 0.1;
-    std::set<int> query_set;
 
     if (profiler != nullptr) {
         int dataCnt = 0;
@@ -928,11 +926,8 @@ float PipeScheduler::measure_com(int sta, int end){
             int order = reversemap[reorder_list[i]];
             int query_num = query_per_bcluster[order];
             dataCnt += query_num;
-            for (int j = 0; j < maxquery_per_bcluster; j++){
-                query_set.insert(bcluster_query_matrix[order * i + j]);
-            }
         }
-        return profiler->queryCom(16, dataCnt);
+        return profiler->queryCom(dataCnt);
     }
     else {
         int dataCnt = 0;

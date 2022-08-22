@@ -43,7 +43,7 @@ struct PipeProfiler{
 
     double queryTran(int pageCnt);
 
-    double queryCom(int queryCnt, int dataCnt);
+    double queryCom(int dataCnt);
 
     int decideSplit(int queryCnt, int dataCnt);
 
@@ -69,7 +69,7 @@ protected:
 
         void train();
 
-        std::map<int, std::map<int, double>> computeTimeDict;
+        std::map<int, double> computeTimeDict;
 
         bool istrained = false;
 
