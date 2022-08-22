@@ -298,31 +298,69 @@ void PipeCluster::mallocNoPinnedMem(){
         int num = balaClu.size();
         float *nop = noPinnedMem[i];
         int *index_nop = noBalan_ids[i];
-        
-        for(int j = 0; j < num; j++){
-            size_t bytes = BCluSize[index] * d * sizeof(float);
-            float *p;
 
-            size_t index_bytes = BCluSize[index] * sizeof(int);
-            int *index_p;
+        if (!interleaved){
+            for(int j = 0; j < num; j++){
+                size_t bytes = BCluSize[index] * d * sizeof(float);
+                float *p;
 
-            // Malloc no pinned memory
-            p = (float *)malloc(bytes);
-            index_p = (int *)malloc(index_bytes);
+                size_t index_bytes = BCluSize[index] * sizeof(int);
+                int *index_p;
 
-            // Substitute pinned memory for nopinned
-            memcpy(p, nop, bytes);
-            memcpy(index_p, index_nop, index_bytes);
+                // Malloc no pinned memory
+                p = (float *)malloc(bytes);
+                index_p = (int *)malloc(index_bytes);
 
-            Mem[index] = p;
-            Balan_ids[index] = index_p;
+                // Substitute pinned memory for nopinned
+                memcpy(p, nop, bytes);
+                memcpy(index_p, index_nop, index_bytes);
 
-            // ADD the original memory address
-            nop = nop + bytes/sizeof(float);
-            index_nop = index_nop + index_bytes/sizeof(int);
-            index++;
+                Mem[index] = p;
+                Balan_ids[index] = index_p;
+
+                // ADD the original memory address
+                nop = nop + bytes/sizeof(float);
+                index_nop = index_nop + index_bytes/sizeof(int);
+                index++;
+            }
         }
-        // Free the nopinned memory
+        else{
+            for(int j = 0; j < num; j++){
+                size_t nobytes = BCluSize[index] * d * sizeof(float);
+                size_t bytes = BCluSize[index] % 32 == 0 ? BCluSize[index] : 
+                    BCluSize[index] / 32 * 32 + 32 ;
+                bytes *= d * sizeof(float);
+                float *p;
+
+                size_t index_bytes = BCluSize[index] * sizeof(int);
+                int *index_p;
+
+                // Malloc no pinned memory
+                p = (float *)malloc(bytes);
+                index_p = (int *)malloc(index_bytes);
+                memcpy(index_p, index_nop, index_bytes);
+
+                // Substitute pinned memory for nopinned
+                int nt = std::min(omp_get_max_threads(), BCluSize[index]);
+#pragma omp parallel for if (nt > 1)
+                for (int l = 0; l < BCluSize[index]; l++) {
+                    for (int m = 0; m < d; m++) {
+                        int oldidx = l * d + m;
+                        int newidx = m * 32 + (int)(l / 32) * (32 * d) + l % 32;
+                        p[newidx] = nop[oldidx]; 
+                    }
+                }
+
+                Mem[index] = p;
+                Balan_ids[index] = index_p;
+
+                // ADD the original memory address
+                nop = nop + nobytes/sizeof(float);
+                index_nop = index_nop + index_bytes/sizeof(int);
+                index++;
+            }
+        }
+        // Free the  memory
         free(noPinnedMem[i]);
         free(noBalan_ids[i]);
     }

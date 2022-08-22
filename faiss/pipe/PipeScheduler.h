@@ -23,6 +23,19 @@
 namespace faiss{
 namespace gpu{
 
+class Arecord{
+public:
+    int query;
+    int dataCnt;
+    float value;
+    Arecord(int query_, int dataCnt_, float value_){
+        query = query_;
+        dataCnt = dataCnt_;
+        value = value_;
+    }
+};
+
+
 // The class reorders the computation and divides the pipeline groups
 class PipeScheduler{
 protected:
@@ -68,10 +81,8 @@ public:
 
     float measure_com(int sta, int end);
 
-    void compute();
-
     std::pair<int, int> genematrix(int **queryClusMat, int **queryIds, 
-        const std::vector<int> & group );
+        const std::vector<int> & group, int* dataCnt );
 
 public:
 
@@ -172,12 +183,16 @@ public:
 
     double com_transmission = 0.;
 
+    double group_time = 0.;
+
+    double reorder_time = 0.;
+
 };
 
 
-void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds);
+void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt);
 
-void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds);
+void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt);
 
 } // namespace gpu
 } // namespace faiss

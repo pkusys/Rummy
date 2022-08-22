@@ -68,10 +68,18 @@ void test_profile(faiss::IndexIVFPipe* index){
     char b[100]="profileSave2.txt";
     char c[100]="profileQuery.txt";
     index->saveProfile(a);
+
+    printf("save 1 finished\n");
+
     index->loadProfile(a);
+
+    printf("load 1 finished\n");
+
     index->saveProfile(b);
 
+    printf("save 2 finished\n");
 
+    printf("save and load successfully\n");
 
     FILE * fp;
 
@@ -83,8 +91,10 @@ void test_profile(faiss::IndexIVFPipe* index){
     }
 
     fprintf(fp, "{coms}\n");
-    for (int i = 1; i < 2 * index->profiler->maxClus * 16; i++){
-        fprintf(fp, "%d %lf\n", i, index->profiler->queryCom(i, 1));
+    for (int j = 3; j < 2 * index->profiler->maxDataCnt; j*=2){
+        double value = index->profiler->queryCom(j);
+        fprintf(fp, "%d:%lf\n", j, value);
+        printf("%d:%lf\n", j, value);   
     }
 
     fprintf(fp,"{the-end}\n");
@@ -800,6 +810,7 @@ int main(int argc, char** argv) {
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::gpu::StandardGpuResources* resources = new faiss::gpu::StandardGpuResources();
     faiss::IndexIVFPipeConfig config;
+    //config.device = 1;
     faiss::IndexIVFPipe* index = new faiss::IndexIVFPipe(d, ncentroids, config, pipe_res, faiss::METRIC_L2);
     FAISS_ASSERT (config.interleavedLayout == true);
 
