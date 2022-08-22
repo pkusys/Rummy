@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <iostream>
 #include <string.h>
+#include <set>
 
 #include <faiss/pipe/PipeScheduler.h>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
@@ -52,7 +53,8 @@ void *computation(void *arg){
     int *matrix;
     int *queryIds;
     auto t0 = elapsed();
-    auto shape = param->sche->genematrix(&matrix, &queryIds, param->group);
+    int dataCnt;
+    auto shape = param->sche->genematrix(&matrix, &queryIds, param->group, &dataCnt);
     printf("debug : tranpose time %.3f\n", (elapsed() - t0)*1000);
 
     // Prepare the data
@@ -142,16 +144,10 @@ void *computation(void *arg){
     // compu_time += tt - t;
 
     pthread_mutex_unlock(&(pc->resource_mutex));
+    cudaStreamSynchronize(exec_stream);
     t = elapsed();
 
-    int split = 1;
-    int cur_block_num = shape.first * shape.second;
-    // Find an appropriate split num
-    if (pc->Min_Block > 0){
-        while(cur_block_num * split < pc->Min_Block){
-            split = split << 1;
-        }
-    }
+    int split = param->sche->profiler->decideSplit(shape.first, dataCnt);
 
     bool dir;
     if (param->index->metric_type == MetricType::METRIC_L2) {
@@ -195,8 +191,10 @@ void *computation(void *arg){
     delete ListIndexP_;
     delete ListDataP_;
 
+    //dataCnt = shape.first * shape.second;
     tt = elapsed();
-    compu_time += tt - t;
+    float real_com = tt - t;
+    compu_time += real_com;
 
     param->sche->com_time += compu_time;
 
@@ -252,7 +250,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
 
 PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label, bool free_)
-            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n) {
+            : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n){
                 DeviceScope *scope;
                 if(index != nullptr)
                     scope = new DeviceScope(index->ivfPipeConfig_.device);
@@ -747,7 +745,8 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
                         }
                         pgr_->memcpyh2d(mb.pages[j], h2d_stream);
                     }
-                    com_transmission += elapsed() - tt0;
+                    float real_tran = elapsed() - tt0;
+                    com_transmission += real_tran;
                     break;
                 }
                 else{
@@ -916,11 +915,13 @@ float PipeScheduler::measure_tran(int num){
 float PipeScheduler::measure_com(int sta, int end){
     if (sta == end)
         return 0.;
-    // return 0.6 * (end - sta) * (float(reorder_list.size())/end) + 0.1;
+
     if (profiler != nullptr) {
         int dataCnt = 0;
         for( int i = sta; i < end; i++) {
-            dataCnt += query_per_bcluster[reversemap[reorder_list[i]]];
+            int order = reversemap[reorder_list[i]];
+            int query_num = query_per_bcluster[order];
+            dataCnt += query_num;
         }
         return profiler->queryCom(dataCnt);
     }
@@ -936,7 +937,7 @@ float PipeScheduler::measure_com(int sta, int end){
 
 // Remember to delete queryClusMat & queryIds to avoid memory leak !!!
 std::pair<int, int> PipeScheduler::genematrix(int **queryClusMat, int **queryIds, 
-        const std::vector<int> & group){
+        const std::vector<int> & group, int* dataCnt){
     int groupSize = group.size();
 
     int maxqueryNum = maxquery_per_bcluster;
@@ -948,58 +949,19 @@ std::pair<int, int> PipeScheduler::genematrix(int **queryClusMat, int **queryIds
 
     if (groupSize > 8 * 4){
         transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
-            queryMax, clusMax, rows, bcluster_list, queryIds);
+            queryMax, clusMax, rows, bcluster_list, queryIds, dataCnt);
     }
     else{
         transpose_single(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
-            queryMax, clusMax, rows, bcluster_list, queryIds);
+            queryMax, clusMax, rows, bcluster_list, queryIds, dataCnt);
     }
 
     return std::pair<int,int>(maxqueryNum, groupSize);
 }
 
 
-void PipeScheduler::compute(){
-
-    auto groupNum = groups.size();
- 
-    for (int i = 0; i < groupNum; i++) {
-        int start = (i == 0) ? 0 : groups[i - 1];
-        int cnt = groups[i] - start;
-
-        std::vector<int> rows;
-        rows.resize(cnt);
-        int* queryClusSubmat;
-
-        for (int j = 0; j < cnt; j++){
-            int order = reversemap[reorder_list[start + j]];
-            rows[j] = order;
-        }
-        int clus = cnt;
-        int query = query_per_bcluster[reversemap[reorder_list[start]]];
-        int* queryIds;
-
-        transpose(bcluster_query_matrix, &queryClusSubmat, &clus, &query, queryMax, clusMax, rows, bcluster_list, &queryIds);
-
-        delete[] queryClusSubmat;
-        delete[] queryIds;
-
-    }
-/*
-    PipeTensor<int, 2, true> bcluster_query_tensor({n, cluster_split}, pc);
-
-
-    bcluster_query_tensor.copyFrom(result_distances, h2d_stream);
-    bcluster_query_tensor.setResources(pc, pipe_res);
-    bcluster_query_tensor.memh2d(h2d_stream);
-*/
-
-
-    
-}
-
 // clu * query , 
-void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
+void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt) {
     omp_set_num_threads(8);
     int oriClus = *clus;
     int oriQuery = *query;
@@ -1057,6 +1019,8 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
 
     *queryClusMat = new int[afterQuery * afterClus];
 
+    *dataCnt = 0;
+
     #pragma omp parallel for
     for (int i = 0; i < afterQuery ; i++) {
         int queryId = (*queryIds)[i];
@@ -1066,6 +1030,10 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
         std::fill(*queryClusMat + afterClus * i + clusPerQuery[queryId], *queryClusMat + afterClus * (i + 1), -1);
     }
 
+    for (int i = 0; i < afterQuery ; i++) {
+        int queryId = (*queryIds)[i];
+        *dataCnt = *dataCnt + clusPerQuery[queryId];
+    }
 
     *clus = afterClus;
     *query = afterQuery;
@@ -1090,7 +1058,7 @@ void transpose(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int
 
 
 
-void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds) {
+void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* query, int queryMax, int clusMax, std::vector<int>& rows, int* clusIds, int** queryIds, int* dataCnt) {
     int oriClus = *clus;
     int oriQuery = *query;
     int afterClus = 0;
@@ -1130,10 +1098,11 @@ void transpose_single(int* clusQueryMat, int** queryClusMat, int* clus, int* que
     *queryClusMat = new int[afterQuery * afterClus];
     std::fill(*queryClusMat, (*queryClusMat) + afterQuery * afterClus, -1 );
 
-    
+    *dataCnt = 0 ;
     for (int i = 0; i < afterQuery ; i++) {
         int queryId = (*queryIds)[i];
         memcpy(*queryClusMat + afterClus * i, queryClus + queryId * clusMax, sizeof(int) * clusPerQuery[queryId]);
+        *dataCnt = *dataCnt + clusPerQuery[queryId];
     }
 
     *clus = afterClus;

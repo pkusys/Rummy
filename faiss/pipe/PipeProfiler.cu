@@ -29,6 +29,8 @@ PipeProfiler::PipeProfiler(IndexIVFPipe *index)
         index_ = index;
         pc_ = index->pipe_cluster;
         pgr_ = index->pipe_provider;
+        maxDataCnt = 4096 * 8 * 2;
+        nqMax = 1024;
         trans = new TranProfiler(this);
         coms = new ComProfiler(this);
     }
@@ -62,11 +64,9 @@ void PipeProfiler::save(const char* path_){
 
     fprintf(fp, "{coms}\n");
     for (auto it = coms->computeTimeDict.begin(); it != coms->computeTimeDict.end(); it++){
-        int dataCnt = (it->first) >> 32;
-        int split = (it->first) & 0xffffffff;
-        fprintf(fp, "%d %d %lf\n", dataCnt, split, it->second);
+        fprintf(fp, "%d %lf\n", it->first, it->second);   
     }
-    fprintf(fp, "%zu %lf\n", (unsigned long)0, 0.);
+    fprintf(fp,"%d %lf\n", 0, 0.);
     
     fprintf(fp,"{the-end}\n");
 
@@ -108,14 +108,9 @@ void PipeProfiler::load(const char* path_){
     // printf("%s\n", buffer);
 
     while(true){
-        unsigned long key;
-        int dataCnt;
-        int split;
-
+        int key;
         double value;
-        fscanf(fp, "%d %d %lf", &dataCnt, &split, &value);
-        key = ((unsigned long)dataCnt << 32) + (unsigned long)split;
-        // printf("%zu %lf\n", key, value);
+        fscanf(fp, "%d %lf", &key, &value);
         if(key == 0){
             break;
         }
@@ -165,70 +160,34 @@ double PipeProfiler::queryTran(int pageCnt) {
     return realTime;
 }
 
-double PipeProfiler::queryCom(int dataCnt, int split) {
+double PipeProfiler::queryCom(int dataCnt) {
     FAISS_ASSERT(coms->istrained);
-    bool goodsplit = false;
-    for(int i = 1; i <= 256; i *= 2) {
-        if(split == i) {
-            goodsplit = true;
-            break;
-        }
-    }
-    FAISS_ASSERT(goodsplit == true);
-    unsigned long key = (((unsigned long)dataCnt) << 32) + split;
 
-    auto target = coms->computeTimeDict.find(key);
-    if (target != coms->computeTimeDict.end()) {
+    auto target = coms->computeTimeDict.find(dataCnt);
+    if(target != coms->computeTimeDict.end()){
         return target->second;
     }
-    
-    auto up = coms->computeTimeDict.lower_bound(key);
+    auto up = coms->computeTimeDict.lower_bound(dataCnt);
     auto down = up;
-    bool found = false;
     if(up == coms->computeTimeDict.begin()){
         up++;
-        while(up != coms->computeTimeDict.end()){
-            int split_ = up->first & 0xffffffff;
-            if(split_ == split){
-                found = true;
-                break;
-            }
-            up++;
-        }
-        if(!found){
-            printf("error1:%d\n",dataCnt);
-        }
-        FAISS_ASSERT(found);
+        FAISS_ASSERT(up != coms->computeTimeDict.end());
     }
     else{
         if(up == coms->computeTimeDict.end()){
             up--;
+            down = up;
         }
-        down = up;   
-
-        while (down != coms->computeTimeDict.begin()) {
-            down--;
-            int split_ = down->first & 0xffffffff;
-            if (split_ == split){
-                found = true;
-                break;
-            }
-        }
-        if(!found){
-            printf("error2:%d\n",dataCnt);
-        }
-        FAISS_ASSERT(found);
+        down--;
     }
-    
-
-
     double upTime = up->second;
     double downTime = down->second;
-    unsigned long upDataCnt = up->first >> 32;
-    unsigned long downDataCnt = down->first >> 32;
+    unsigned long upDataCnt = up->first;
+    unsigned long downDataCnt = down->first;
     double realTime = 
         downTime + (upTime - downTime) * (dataCnt - (double)downDataCnt) / ((double)upDataCnt - (double)downDataCnt);
     return realTime;
+ 
  }
 
 
@@ -295,20 +254,31 @@ void PipeProfiler::TranProfiler::train(){
     istrained = true;
 }
 
+int PipeProfiler::decideSplit(int queryCnt, int dataCnt){
+        int split = 1;
+        // Find an appropriate split num
+        if (pc_->Min_Block > 0){
+            while(dataCnt * split < pc_->Min_Block){
+                split = split << 1;
+            }
+        }
+        return split;
+    }
+
 
 void PipeProfiler::ComProfiler::train(){
     // param space
 
-    int nt = 16;
+    int ntmax = p -> nqMax;
     int d = p->pc_->d;
     int k = 10;
 
 
     std::mt19937 rng;
-    float *trainvecs = new float[nt * d];
+    float *trainvecs = new float[ntmax * d];
     {
         std::uniform_real_distribution<> distrib;
-        for (size_t i = 0; i < nt * d; i++) {
+        for (size_t i = 0; i < ntmax * d; i++) {
             trainvecs[i] = distrib(rng);
         }
     }
@@ -371,18 +341,20 @@ void PipeProfiler::ComProfiler::train(){
 
     void** ListIndexP = ListIndexP_.devicedata();
 
-    int* queryids = (int*)malloc(sizeof(int) * nt);
-    for (int i = 0; i < nt; i++){
+    int* queryids = (int*)malloc(sizeof(int) * ntmax);
+    for (int i = 0; i < ntmax; i++){
         queryids[i] = i;
     }
 
-    faiss::gpu::PipeTensor<int, 1, true> queryids_gpu({nt}, pc);
+    int nq = 16;
+
+    faiss::gpu::PipeTensor<int, 1, true> queryids_gpu({nq}, pc);
     queryids_gpu.copyFrom(queryids, h2d_stream);
     queryids_gpu.setResources(pc, pgr);
     queryids_gpu.memh2d(h2d_stream);
 
-    
-    faiss::gpu::PipeTensor<float, 2, true> queries_gpu({nt, d}, pc);
+        
+    faiss::gpu::PipeTensor<float, 2, true> queries_gpu({nq, d}, pc);
     queries_gpu.copyFrom(trainvecs, h2d_stream);
     queries_gpu.setResources(pc, pgr);
     queries_gpu.memh2d(h2d_stream);
@@ -398,84 +370,102 @@ void PipeProfiler::ComProfiler::train(){
 
     // query*cluster
     
+    int maxClus = p->maxDataCnt / nq;
 
-    int nq = nt;//fixed: 16
     int clus = 1;
-    int split = 1;
-    p->maxClus = 4096 * 8;
+    while (clus <= maxClus)
+    {
 
-    int* query_bcluster_matrix = new int[p->maxClus * 16];
+        int* query_bcluster_matrix = new int[2 * clus * nq];
+        std::default_random_engine generator;
+        std::normal_distribution<double> distribution(clus, 0.8 * (double)clus);
 
-    for (int i = 0; i < p->maxClus; i++) {
-        query_bcluster_matrix[i] = i % listNum;
-    }
-    for (int i = 0 ;i < 16; i++) {
-        memcpy(query_bcluster_matrix + p->maxClus * i, query_bcluster_matrix, sizeof(int) * p->maxClus);
-    }
+        for (int i = 1; i < nq; i += 2) {
+            int number = rand() % (2 * clus);//(int)distribution(generator);
+            if(number >= 2 * clus){
+                number = 2 * clus - 1;
+            }
+            else if(number == 0){
+                number = 1;
+            }
+            for(int j = 0 ; j < 2 * clus ; j++){
+                if(j < number){
+                    query_bcluster_matrix[i * 2 * clus + j] = j % std::min(clus, listNum);
+                }
+                else{
+                    query_bcluster_matrix[i * 2 * clus + j] = -1;
+                }
+            }
+            for(int j = 0 ; j < 2 * clus ; j++){
+                if(j < 2 * clus - number){
+                    query_bcluster_matrix[(i - 1)  * 2 * clus + j] = j % std::min(clus, listNum);
+                }
+                else{
+                    query_bcluster_matrix[(i - 1) * 2 * clus + j] = -1;
+                }
+            }
+                
+        }
+        if(nq % 2 == 1){
+            for(int j = 0 ; j < 2 * clus ; j++){
+                if(j < clus){
+                    query_bcluster_matrix[(nq - 1)  * 2 * clus + j] = j % std::min(clus, listNum);
+                }
+                else{
+                    query_bcluster_matrix[(nq - 1) * 2 * clus + j] = -1;
+                }
+            }
+        }
+        faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, 2 * clus}, pc);
+        query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
+        query_cluster_matrix_gpu.setResources(pc, pgr);
+        query_cluster_matrix_gpu.memh2d(h2d_stream);
+        cudaStreamSynchronize(h2d_stream);
 
-    faiss::gpu::PipeTensor<int, 2, true> query_cluster_matrix_gpu({nq, p->maxClus}, pc);
-    query_cluster_matrix_gpu.copyFrom(query_bcluster_matrix, h2d_stream);
-    query_cluster_matrix_gpu.setResources(pc, pgr);
-    query_cluster_matrix_gpu.memh2d(h2d_stream);
+        int dataCnt = nq * clus;
+        int split = p->decideSplit(nq, dataCnt);
 
-    cudaStreamSynchronize(h2d_stream);
+        faiss::gpu::PipeTensor<float, 2, true> out_distances({nq, (int)k}, pc);
+        out_distances.setResources(pc, pgr);
+        out_distances.reserve();
 
+        faiss::gpu::PipeTensor<int, 2, true> out_indices({nq, (int)k}, pc);
+        out_indices.setResources(pc, pgr);
+        out_indices.reserve();
 
+        double t0 = timepoint();
 
+        faiss::gpu::runKernelComputeReduce(
+                        d,
+                        k,
+                        nq,
+                        2 * clus,
+                        queryids_gpu,
+                        queries_gpu,
+                        query_cluster_matrix_gpu,
+                        ListDataP,
+                        p->index_->ivfPipeConfig_.indicesOptions,
+                        ListLength,
+                        ListIndexP,
+                        p->index_->metric_type,
+                        dir,
+                        out_distances,
+                        out_indices,
+                        pc,
+                        pgr,
+                        device,
+                        split);
 
-    while (split <= 256) {
-        clus = 1;
-        while (clus <= p->maxClus / split)
-        {
-            
+        cudaStreamSynchronize(exe_stream);
 
-            faiss::gpu::PipeTensor<float, 2, true> out_distances({nq, (int)k}, pc);
-            out_distances.setResources(pc, pgr);
-            out_distances.reserve();
-
-            faiss::gpu::PipeTensor<int, 2, true> out_indices({nq, (int)k}, pc);
-            out_indices.setResources(pc, pgr);
-            out_indices.reserve();
-
-            double t0 = timepoint();
-
-            auto query_cluster_matrix_gpu_ = query_cluster_matrix_gpu.narrow(1, 0, clus);
-
-            faiss::gpu::runKernelComputeReduce(
-                            d,
-                            k,
-                            nq,
-                            clus,
-                            queryids_gpu,
-                            queries_gpu,
-                            query_cluster_matrix_gpu_,
-                            ListDataP,
-                            p->index_->ivfPipeConfig_.indicesOptions,
-                            ListLength,
-                            ListIndexP,
-                            p->index_->metric_type,
-                            dir,
-                            out_distances,
-                            out_indices,
-                            pc,
-                            pgr,
-                            device,
-                            split);
-
-            cudaStreamSynchronize(exe_stream);
-
-            double t1 = timepoint();
-            int dataCnt = nq * clus;
-            unsigned long key = (((unsigned long)dataCnt) << 32) + split; 
-            double tCnt = t1 - t0;
-            computeTimeDict[key] = tCnt;
-            clus *= 2 ;
-            //printf("dataCnt:%d, split:%d. Result:%lf\n", dataCnt, split, tCnt);
+        double t1 = timepoint();
+        double tCnt = t1 - t0;
+        computeTimeDict[dataCnt] = tCnt;
+        clus *= 2 ;
+        printf("query:%d, dataCnt:%d, split:%d. Result:%lf\n", nq, dataCnt, split, tCnt);
+        delete[] query_bcluster_matrix;
         }
 
-        
-        split *= 2;
-    }
     
     for (int j = 0; j < mb.pages.size(); j++){
         int clus = j;
@@ -485,7 +475,7 @@ void PipeProfiler::ComProfiler::train(){
     }
     
     delete[] trainvecs;
-    delete[] query_bcluster_matrix;
+    
     free(queryids);    
     istrained = true;
 }
