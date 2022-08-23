@@ -840,8 +840,10 @@ void PipeScheduler::reorder(){
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
-    if(verbose)
+    if(verbose){
         printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+        printf("part size:%d\n", part_size);
+    }
 
 }
 
@@ -893,7 +895,8 @@ void PipeScheduler::group(){
 
     if (part_size != 0) {
         int pre = part_size / 4;
-        if (pre == 0 || batch_size <= 4){
+        if (pre == 0 || batch_size <= 8){
+            groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
         else {
