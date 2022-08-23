@@ -451,7 +451,14 @@ void PipeScheduler::group(){
     printf("debug: grain %d, part size %d\n", grain, part_size);
 
     if (part_size != 0) {
-        groups.push_back(part_size);
+        int pre = part_size / 4;
+        if (pre == 0 || batch_size <= 4){
+            groups.push_back(part_size);
+        }
+        else {
+            groups.push_back(part_size / 4);
+            groups.push_back(part_size);
+        }
     }
 
     //Check if all clusters are resident on device
@@ -526,7 +533,7 @@ void PipeScheduler::group(){
     if (groups[num_group - 1] != n){
         int end = groups[num_group - 1];
         int preend = num_group - 2 >= 0 ? groups[num_group - 2] : 0;
-        if (end - preend >= max_size){
+        if (n - preend >= max_size){
             num_group++;
             groups.push_back(n);
         }
