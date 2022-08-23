@@ -185,6 +185,9 @@ public:
 
     pipelinegroup group(int staclu, float total, float delay, int depth);
 
+    // Per cluster pipeline
+    void nonGroup(bool pipeline);
+
     // enter multi-threads
     void process(int num, float *xq, int k, float *dis, int *label);
 
@@ -298,6 +301,8 @@ public:
     double group_time = 0.;
 
     double reorder_time = 0.;
+
+    bool verbose = false;
 
 };
 

@@ -12,3 +12,12 @@ target_link_libraries(nomemman PRIVATE faiss)
 
 add_executable(overall_query EXCLUDE_FROM_ALL overall_query.cu)
 target_link_libraries(overall_query PRIVATE faiss)
+
+add_executable(overall_no_pipeline EXCLUDE_FROM_ALL overall_no_pipeline.cu)
+target_link_libraries(overall_no_pipeline PRIVATE faiss)
+
+add_executable(overall_per_cluster_pipeline EXCLUDE_FROM_ALL overall_per_cluster_pipeline.cu)
+target_link_libraries(overall_per_cluster_pipeline PRIVATE faiss)
+
+add_executable(overall_no_reorder EXCLUDE_FROM_ALL overall_no_reorder.cu)
+target_link_libraries(overall_no_reorder PRIVATE faiss)
