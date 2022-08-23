@@ -691,7 +691,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 reorder_list.resize(bcluster_cnt);
 
                 reorder();
-                //nonReorder();
+                // nonReorder();
                 t1 = elapsed();
                 printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
                 reorder_time += (t1 - t0)*1000;
@@ -872,7 +872,7 @@ void PipeScheduler::group(){
 
     if (part_size != 0) {
         int pre = part_size / 4;
-        if (pre == 0){
+        if (pre == 0 || batch_size <= 4){
             groups.push_back(part_size);
         }
         else {
@@ -953,7 +953,7 @@ void PipeScheduler::group(){
     if (groups[num_group - 1] != n){
         int end = groups[num_group - 1];
         int preend = num_group - 2 >= 0 ? groups[num_group - 2] : 0;
-        if (end - preend >= max_size){
+        if (n - preend >= max_size){
             num_group++;
             groups.push_back(n);
         }
