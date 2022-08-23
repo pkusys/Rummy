@@ -21,3 +21,9 @@ target_link_libraries(overall_per_cluster_pipeline PRIVATE faiss)
 
 add_executable(overall_no_reorder EXCLUDE_FROM_ALL overall_no_reorder.cu)
 target_link_libraries(overall_no_reorder PRIVATE faiss)
+
+add_executable(overall_no_pin EXCLUDE_FROM_ALL overall_no_pin.cu)
+target_link_libraries(overall_no_pin PRIVATE faiss)
+
+add_executable(overall_no_lru EXCLUDE_FROM_ALL overall_no_lru.cu)
+target_link_libraries(overall_no_lru PRIVATE faiss)

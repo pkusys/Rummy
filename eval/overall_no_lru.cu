@@ -32,7 +32,7 @@
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/gpu/PipeGpuResources.h>
 #include <faiss/gpu/utils/PipeTensor.cuh>
-#include <faiss/pipe/NaiveScheduler.h>
+#include <faiss/pipe/PipeScheduler.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/pipe/PipeKernel.cuh>
 
@@ -195,12 +195,11 @@ int main(int argc,char **argv){
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index;
-    
     if (p1 == "text")
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
     else
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
-    index->use_pin_memory = false;
+    index->use_lru = false;
 
     FAISS_ASSERT (config.interleavedLayout == true);
 
@@ -304,13 +303,10 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    // Free the pgr memory
-    cudaFree(pipe_res->p_);
-    pipe_res->p_ = nullptr;
-
-    nq = 10000;
-    if (bs == 8)
+    if(bs == 8)
         nq = 2000;
+    else
+        nq = 10000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
@@ -320,7 +316,7 @@ int main(int argc,char **argv){
     int i;
     for (i = 0; i < nq / bs; i++){
         tt0 = elapsed();
-        auto sche = new faiss::gpu::NaiveScheduler(index, 
+        auto sche = new faiss::gpu::PipeScheduler(index, 
             pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
         tt1 = elapsed();
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 

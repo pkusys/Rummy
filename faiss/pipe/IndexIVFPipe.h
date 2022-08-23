@@ -85,6 +85,8 @@ struct IndexIVFPipe: Index {
 
     bool use_pin_memory = true;
 
+    bool use_lru = true;
+
     bool reorder = true;
     
     bool group = true;

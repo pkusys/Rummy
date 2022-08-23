@@ -632,6 +632,8 @@ void *computation(void *arg){
         int cluid = param->group[i];
         int page = pc->clu_page[cluid];
         int lrucnt = (param->sche->query_per_bcluster)[param->sche->reversemap[cluid]];
+        if (param->index->use_lru == false)
+            lrucnt = 0;
         pc->addGlobalCount(cluid, page, lrucnt);
         pc->setComDevice(cluid, page, false);
     }
