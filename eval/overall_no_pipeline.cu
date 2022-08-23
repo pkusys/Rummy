@@ -194,7 +194,6 @@ int main(int argc,char **argv){
     int ncentroids = 64 * 4;
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::IndexIVFPipeConfig config;
-    config.device = 0;
     faiss::IndexIVFPipe* index;
     if (p1 == "text")
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
@@ -202,6 +201,9 @@ int main(int argc,char **argv){
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
 
     FAISS_ASSERT (config.interleavedLayout == true);
+
+    index->reorder = false;
+    index->group = false;
 
     size_t d;
     // Train the index
@@ -288,7 +290,7 @@ int main(int argc,char **argv){
     auto pc = index->pipe_cluster;
     pipe_res->initializeForDevice(0, pc);
 
-  // Profile
+    // Profile
     printf("[%.3f s] Start Profile\n",
                elapsed() - t0);
     // Train profile
@@ -303,24 +305,26 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-
     nq = 10000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
     index->set_nprobe(ncentroids / 16);
-    double tt0, tt1, total = 0.;
+    double tt0, tt1, total = 0., opt = 0., group_time = 0., reorder_time = 0., nogroup = 0.;
 
     int i;
     for (i = 0; i < nq / bs; i++){
         tt0 = elapsed();
-        auto sche = new faiss::gpu::QueryScheduler(index, 
-            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i), 8);
+        auto sche = new faiss::gpu::PipeScheduler(index, 
+            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
         tt1 = elapsed();
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
             sche->com_time*1000, sche->com_transmission*1000);
         total += (tt1 - tt0) * 1000;
-
+        group_time += sche->group_time;
+        reorder_time += sche->reorder_time;
+        opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
+        nogroup += sche->com_time*1000 + sche->com_transmission*1000;
         delete sche;
     }
 
@@ -329,12 +333,16 @@ int main(int argc,char **argv){
         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);
     }
 
+    printf("Ave Opt Latency : %.3f ms\n", opt / i);
     printf("Ave Latency : %.3f ms\n", total / i);
+    printf("Ave Reorder Time : %.3f ms\n", reorder_time / i);
+    printf("Ave Group Time : %.3f ms\n", group_time / i);
+    printf("Ave No Group Time : %.3f ms\n", nogroup / i);
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
 
     delete[] xq;
     delete[] gt;
-    delete[] gtd;   
+    delete[] gtd;
     delete index;
     delete pipe_res;
     return 0;

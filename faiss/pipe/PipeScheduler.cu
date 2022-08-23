@@ -259,6 +259,10 @@ QueryScheduler::QueryScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuReso
                 
                 num_group = n / grain;
 
+                if(num_group == 0){
+                    num_group = 1;
+                }
+
                 // Initialize the computation threads
                 pc_->com_threads.resize(num_group);
                 
@@ -478,7 +482,8 @@ void *computation(void *arg){
     auto t0 = elapsed();
     int dataCnt;
     auto shape = param->sche->genematrix(&matrix, &queryIds, param->group, &dataCnt);
-    printf("debug : tranpose time %.3f\n", (elapsed() - t0)*1000);
+    if(param->sche->verbose)
+        printf("debug : tranpose time %.3f\n", (elapsed() - t0)*1000);
 
     // Prepare the data
     std::vector<void*> ListDataP_vec(param->clunum);
@@ -563,7 +568,8 @@ void *computation(void *arg){
     pthread_mutex_unlock(&(param->sche->preemption_mutex));
 
     tt = elapsed();
-    printf("debug : Tensor time %.3f\n", (tt - t)*1000);
+    if(param->sche->verbose)
+        printf("debug : Tensor time %.3f\n", (tt - t)*1000);
     // compu_time += tt - t;
 
     pthread_mutex_unlock(&(pc->resource_mutex));
@@ -622,7 +628,6 @@ void *computation(void *arg){
 
     // Change page info
     pthread_mutex_lock(&(pc->resource_mutex));
-
     for (int i = 0; i < param->clunum; i++){
         int cluid = param->group[i];
         int page = pc->clu_page[cluid];
@@ -690,25 +695,40 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 
                 reorder_list.resize(bcluster_cnt);
 
-                reorder();
-                // nonReorder();
+
+                if(index_->reorder ){
+                    reorder();
+                }
+                else{
+                    nonReorder();
+                }
+
                 t1 = elapsed();
                 printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
                 reorder_time += (t1 - t0)*1000;
                 t0 = t1;
 
-                group();
+                if(index_->group){
+                    group();
+                }
+                else{
+                    nonGroup(index_->reorder);                    
+                }
+                
                 t1 = elapsed();
                 printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
                 group_time = (t1 - t0)*1000;
                 t0 = t1;
 
-                // deubg
-                printf("----Demo group----\n");
-                for(int i = 0; i < groups.size(); i++){
-                    printf("%d ", groups[i]);
+                if(verbose){
+                    printf("----Demo group----\n");
+                    for(int i = 0; i < groups.size(); i++){
+                        printf("%d ", groups[i]);
+                    }
+                    printf("\n");
                 }
-                printf("\n");
+                // deubg
+                
 
                 FAISS_ASSERT(num_group > 0);
                 // Initialize the computation threads
@@ -820,8 +840,8 @@ void PipeScheduler::reorder(){
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
-
-    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+    if(verbose)
+        printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
 
 }
 
@@ -846,8 +866,8 @@ void PipeScheduler::nonReorder(){
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
-
-    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+    if(verbose)
+        printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
 }
 
 void PipeScheduler::group(){
@@ -868,7 +888,8 @@ void PipeScheduler::group(){
 
     grain = std::min(grain, max_size);
 
-    printf("debug: grain %d, part size %d\n", grain, part_size);
+    if(verbose)
+        printf("debug: grain %d, part size %d\n", grain, part_size);
 
     if (part_size != 0) {
         int pre = part_size / 4;
@@ -1067,6 +1088,25 @@ PipeScheduler::pipelinegroup PipeScheduler::group(int staclu, float total, float
 
 }
 
+void PipeScheduler::nonGroup(bool pipeline){
+
+    if(pipeline){
+        num_group = bcluster_cnt;
+        groups.resize(num_group);
+        for(int i = 0 ; i < num_group ; i++){
+            groups[i] = i + 1;
+        }
+    }
+    else{
+        num_group = 1;
+        groups.resize(1);
+        groups[0] = bcluster_cnt;
+    }
+
+
+}
+
+
 void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
 
     int device = index_->ivfPipeConfig_.device;
@@ -1088,11 +1128,6 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
     queries_num.resize(num_group);
     cnt_per_query.resize(n);
     std::fill(cnt_per_query.data(), cnt_per_query.data() + n, 0);
-
-    for (int i = 0 ; i < num_group; i++){
-        int sta = (i == 0 ? 0 : groups[i-1]);
-        int end = groups[i];
-    }
 
     // pined the future pages
     for (int i = 0; i < reorder_list.size(); i++){
