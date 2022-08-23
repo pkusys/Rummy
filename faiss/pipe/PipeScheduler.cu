@@ -895,11 +895,14 @@ void PipeScheduler::group(){
 
     if (part_size != 0) {
         int pre = part_size / 4;
-        if (pre == 0 || batch_size <= 8){
+        if (pre == 0){
+            groups.push_back(part_size);
+        }
+        else if (batch_size <= 8){
             groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
-        else {
+        else{
             groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
