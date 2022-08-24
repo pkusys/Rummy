@@ -454,15 +454,19 @@ void PipeScheduler::group(){
 
     if (part_size != 0) {
         int pre = part_size / 4;
-        if (pre == 0 || batch_size <= 4){
+        if (pre == 0){
             groups.push_back(part_size);
         }
-        else {
+        else if (batch_size <= 8){
+            groups.push_back(part_size / 4);
+            groups.push_back(part_size);
+        }
+        else{
             groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
     }
-
+    
     //Check if all clusters are resident on device
     int temp = groups.size();
     if (temp > 0 && groups[temp - 1] == n){
