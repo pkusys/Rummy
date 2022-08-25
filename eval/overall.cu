@@ -140,6 +140,8 @@ int main(int argc,char **argv){
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
 
+    int ncentroids = -1;
+
     std::string db, train_db, query, gtI, gtD;
     int dim;
     if (input_k>100 || input_k <=0){
@@ -153,6 +155,7 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/sift/sift40Mgti.ivecs";
         gtD = "/workspace/data-gpu/sift/sift40Mgtd.fvecs";
         dim = 128;
+        ncentroids = 1879;
     }
     else if (p1 == "deep"){
         db = "/workspace/data-gpu/deep/deep50M.fvecs";
@@ -161,14 +164,16 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/deep/deep50Mgti.ivecs";
         gtD = "/workspace/data-gpu/deep/deep50Mgtd.fvecs";
         dim = 96;
+        ncentroids = 2863;
     }
     else if (p1 == "text"){
         db = "/workspace/data-gpu/text/text25M.fvecs";
         train_db = "/workspace/data/text/text10M.fvecs";
         query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/workspace/data-gpu/sift/text25Mgti.ivecs";
-        gtD = "/workspace/data-gpu/sift/text25Mgtd.fvecs";
+        gtI = "/workspace/data-gpu/text/text25Mgti.ivecs";
+        gtD = "/workspace/data-gpu/text/text25Mgtd.fvecs";
         dim = 200;
+        ncentroids = 1326;
     }
     else{
         printf("Your input dataset is not included yet! \n");
@@ -183,7 +188,6 @@ int main(int argc,char **argv){
     // float *x;
     // cudaMalloc((void**)&x, nBytes);
 
-    int ncentroids = 64 * 4;
     int dev_no = 0;
     faiss::gpu::StandardGpuResources resources;
     faiss::gpu::GpuIndexIVFFlatConfig config;
@@ -276,11 +280,11 @@ int main(int argc,char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 100;
+    nq = 10000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
-    index->nprobe = ncentroids / 16;
+    index->nprobe = ncentroids / 32;
 
     auto tt0 = elapsed();
     int i;
@@ -297,7 +301,6 @@ int main(int argc,char **argv){
     }
     acc /= (i * bs);
     acc *= 100;
-
 
     printf("Ave Latency : %.3f s\n", total / i);
     printf("Ave accuracy : %.1f%% \n", acc);
