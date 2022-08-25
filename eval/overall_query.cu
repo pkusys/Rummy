@@ -151,6 +151,7 @@ int main(int argc,char **argv){
     std::string p3 = argv[3];
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
+    int ncentroids;
 
     std::string db, train_db, query, gtI, gtD;
     int dim;
@@ -165,6 +166,7 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/sift/sift40Mgti.ivecs";
         gtD = "/workspace/data-gpu/sift/sift40Mgtd.fvecs";
         dim = 128;
+        ncentroids = 256;
     }
     else if (p1 == "deep"){
         db = "/workspace/data-gpu/deep/deep50M.fvecs";
@@ -173,6 +175,7 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/deep/deep50Mgti.ivecs";
         gtD = "/workspace/data-gpu/deep/deep50Mgtd.fvecs";
         dim = 96;
+        ncentroids = 384;
     }
     else if (p1 == "text"){
         db = "/workspace/data-gpu/text/text25M.fvecs";
@@ -181,6 +184,16 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/text/text25Mgti.ivecs";
         gtD = "/workspace/data-gpu/text/text25Mgtd.fvecs";
         dim = 200;
+        ncentroids = 128;
+    }
+    else if (p1 == "text30"){
+        db = "/workspace/data-gpu/text/text30M.fvecs";
+        train_db = "/workspace/data/text/text10M.fvecs";
+        query = "/workspace/data-gpu/text/query.fvecs";
+        gtI = "/workspace/data-gpu/text/text30Mgti.ivecs";
+        gtD = "/workspace/data-gpu/text/text30Mgtd.fvecs";
+        dim = 200;
+        ncentroids = 128;
     }
     else{
         printf("Your input dataset is not included yet! \n");
@@ -191,12 +204,11 @@ int main(int argc,char **argv){
 
     omp_set_num_threads(8);
 
-    int ncentroids = 64 * 4;
     faiss::gpu::PipeGpuResources* pipe_res = new faiss::gpu::PipeGpuResources();
     faiss::IndexIVFPipeConfig config;
     config.device = 0;
     faiss::IndexIVFPipe* index;
-    if (p1 == "text")
+    if (p1 == "text" || p1 == "text30")
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
     else
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
@@ -303,10 +315,7 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    if(bs == 8)
-        nq = 2000;
-    else
-        nq = 10000;
+    nq = 10000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
@@ -317,7 +326,7 @@ int main(int argc,char **argv){
     for (i = 0; i < nq / bs; i++){
         tt0 = elapsed();
         auto sche = new faiss::gpu::QueryScheduler(index, 
-            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i), 8);
+            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i), 2);
         tt1 = elapsed();
         printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
             sche->com_time*1000, sche->com_transmission*1000);

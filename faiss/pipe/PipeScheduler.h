@@ -146,6 +146,8 @@ public:
     int threads = 0;
     std::vector<int> thread_order;
 
+    bool verbose = false;
+
 };
 
 // The class reorders the computation and divides the pipeline groups

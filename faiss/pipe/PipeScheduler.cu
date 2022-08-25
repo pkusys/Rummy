@@ -252,7 +252,8 @@ QueryScheduler::QueryScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuReso
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
                     &bcluster_query_matrix);
                 auto t1 = elapsed();
-                printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
 
 
                 t0 = t1;
@@ -692,7 +693,8 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
                     &bcluster_query_matrix);
                 auto t1 = elapsed();
-                printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
                 t0 = t1;
                 
                 reorder_list.resize(bcluster_cnt);
@@ -706,7 +708,8 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 }
 
                 t1 = elapsed();
-                printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
                 reorder_time += (t1 - t0)*1000;
                 t0 = t1;
 
@@ -718,7 +721,8 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
                 }
                 
                 t1 = elapsed();
-                printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
                 group_time = (t1 - t0)*1000;
                 t0 = t1;
 
@@ -815,7 +819,8 @@ void PipeScheduler::reorder(){
     // multi_sort<int, int> (lru_list.data(), index);
     std::sort(lru_list.begin(), lru_list.begin() + index, Com<int,int>);
     t1 = elapsed();
-    printf("Part 2 : %.3f ms\n", (t1 - t0) * 1000);
+    if(verbose)
+        printf("Part 2 : %.3f ms\n", (t1 - t0) * 1000);
 
     // for (int i = 0; i < 20; i++){
     //     printf("%d %d\n", temp_list[i].second, temp_list[i].first);
@@ -971,7 +976,8 @@ void PipeScheduler::group(){
             opt = first_gr;
     }
 
-    std::cout << "OPT: " << opt.time << "ms \n";
+    if(verbose)
+        std::cout << "OPT: " << opt.time << "ms \n";
 
     auto size = groups.size();
     groups.resize(size + opt.content.size());
@@ -1410,7 +1416,7 @@ std::pair<int, int> PipeScheduler::genematrix(int **queryClusMat, int **queryIds
         rows[i] = reversemap[group[i]];
     FAISS_ASSERT(maxqueryNum > 0);
 
-    if (groupSize > 8 * 4){
+    if (groupSize > 1000000){
         transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
             queryMax, clusMax, rows, bcluster_list, queryIds, dataCnt);
     }

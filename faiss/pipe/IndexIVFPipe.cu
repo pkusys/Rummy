@@ -427,7 +427,7 @@ void IndexIVFPipe::samplePaged_(
     );
 
     batchSize = std::min (batchSize, batchSize_);
-    printf("batchsize:%d\n", batchSize);
+    //printf("batchsize:%d\n", batchSize);
 
     for (int cur = 0; cur < n; cur += batchSize) {
         int num = std::min(batchSize, n - cur);
