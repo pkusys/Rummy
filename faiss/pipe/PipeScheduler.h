@@ -189,6 +189,8 @@ public:
 
     std::vector<Arecord>& record_com;
 
+    bool verbose = false;
+
 };
 
 
