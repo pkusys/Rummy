@@ -184,7 +184,7 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/text/text25Mgti.ivecs";
         gtD = "/workspace/data-gpu/text/text25Mgtd.fvecs";
         dim = 200;
-        ncentroids = 128;
+        ncentroids = 192;
     }
     else if (p1 == "text30"){
         db = "/workspace/data-gpu/text/text30M.fvecs";
@@ -193,7 +193,7 @@ int main(int argc,char **argv){
         gtI = "/workspace/data-gpu/text/text30Mgti.ivecs";
         gtD = "/workspace/data-gpu/text/text30Mgtd.fvecs";
         dim = 200;
-        ncentroids = 128;
+        ncentroids = 192;
     }
     else{
         printf("Your input dataset is not included yet! \n");

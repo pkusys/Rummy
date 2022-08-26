@@ -192,6 +192,8 @@ public:
 
     double reorder_time = 0.;
 
+    bool verbose = false;
+
 };
 
 } // namespace gpu

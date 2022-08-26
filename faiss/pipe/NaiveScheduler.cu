@@ -53,7 +53,8 @@ void *computation_naive(void *arg){
     auto t0 = elapsed_naive();
     int dataCnt;
     auto shape = param->sche->genematrix(&matrix, &queryIds, param->group, &dataCnt);
-    printf("debug : tranpose time %.3f\n", (elapsed_naive() - t0)*1000);
+    if(param->sche->verbose)
+        printf("debug : tranpose time %.3f\n", (elapsed_naive() - t0)*1000);
 
     // Prepare the data
     std::vector<void*> ListDataP_vec(param->clunum);
@@ -137,7 +138,8 @@ void *computation_naive(void *arg){
     pthread_mutex_unlock(&(param->sche->preemption_mutex));
 
     tt = elapsed_naive();
-    printf("debug : Tensor time %.3f\n", (tt - t)*1000);
+    if(param->sche->verbose)
+        printf("debug : Tensor time %.3f\n", (tt - t)*1000);
     // compu_time += tt - t;
 
     pthread_mutex_unlock(&(pc->resource_mutex));
@@ -257,7 +259,8 @@ NaiveScheduler::NaiveScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuReso
                     &bcluster_cnt, &bcluster_list, &query_per_bcluster, &maxquery_per_bcluster,\
                     &bcluster_query_matrix);
                 auto t1 = elapsed_naive();
-                printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Sample Time: %.3f ms\n", (t1 - t0)*1000);
                 t0 = t1;
                 
                 reorder_list.resize(bcluster_cnt);
@@ -265,23 +268,27 @@ NaiveScheduler::NaiveScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuReso
                 reorder();
                 //nonReorder();
                 t1 = elapsed_naive();
-                printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Reorder Time: %.3f ms\n", (t1 - t0)*1000);
                 reorder_time += (t1 - t0)*1000;
                 t0 = t1;
 
                 group();
                 t1 = elapsed_naive();
-                printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
+                if(verbose)
+                    printf("Group Time: %.3f ms\n", (t1 - t0)*1000);
                 group_time = (t1 - t0)*1000;
                 t0 = t1;
 
                 // deubg
-                printf("----Demo group----\n");
-                for(int i = 0; i < groups.size(); i++){
-                    printf("%d ", groups[i]);
+                if(verbose){
+                    printf("----Demo group----\n");
+                    for(int i = 0; i < groups.size(); i++){
+                        printf("%d ", groups[i]);
+                    }
+                    printf("\n");
                 }
-                printf("\n");
-
+                
                 FAISS_ASSERT(num_group > 0);
                 // Initialize the computation threads
                 pc_->com_threads.resize(num_group);
@@ -365,7 +372,8 @@ void NaiveScheduler::reorder(){
     // multi_sort<int, int> (lru_list.data(), index);
     std::sort(lru_list.begin(), lru_list.begin() + index, Com<int,int>);
     t1 = elapsed_naive();
-    printf("Part 2 : %.3f ms\n", (t1 - t0) * 1000);
+    if(verbose)
+        printf("Part 2 : %.3f ms\n", (t1 - t0) * 1000);
 
     // for (int i = 0; i < 20; i++){
     //     printf("%d %d\n", temp_list[i].second, temp_list[i].first);
@@ -392,8 +400,8 @@ void NaiveScheduler::reorder(){
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
-
-    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+    if(verbose)
+        printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
 
 }
 
@@ -418,8 +426,8 @@ void NaiveScheduler::nonReorder(){
     grain = (grain == 0 ? 1 : grain);
 
     // grain = 1;
-
-    printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
+    if(verbose)
+        printf("debug out reorder: %d %d\n", int(reorder_list.size()), grain);
 }
 
 void NaiveScheduler::group(){
@@ -439,8 +447,8 @@ void NaiveScheduler::group(){
         max_size = n - part_size + part_size / 4;
 
     grain = std::min(grain, max_size);
-
-    printf("debug: grain %d, part size %d\n", grain, part_size);
+    if(verbose)
+        printf("debug: grain %d, part size %d\n", grain, part_size);
 
     if (part_size != 0) {
         int pre = part_size / 4;
@@ -908,7 +916,7 @@ std::pair<int, int> NaiveScheduler::genematrix(int **queryClusMat, int **queryId
         rows[i] = reversemap[group[i]];
     FAISS_ASSERT(maxqueryNum > 0);
 
-    if (groupSize > 8 * 4){
+    if (groupSize > 1000000){
         transpose(bcluster_query_matrix, queryClusMat, &groupSize, &maxqueryNum, 
             queryMax, clusMax, rows, bcluster_list, queryIds, dataCnt);
     }
