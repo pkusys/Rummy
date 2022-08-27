@@ -265,14 +265,12 @@ int main(int argc,char **argv){
                 pc, pipe_res, 1, xq, input_k, dis.data(), idx.data());
         }
         index->set_nprobe(int(ncentroids * ratio));
-        double tt0, tt1, total = 0., opt = 0.;
+        double total = 0., opt = 0.;
 
         int i;
         for (i = 0; i < nq / bs; i++){
-            tt0 = elapsed();
             auto sche = new faiss::gpu::PipeScheduler(index, 
                 pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
-            tt1 = elapsed();
             printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
                 sche->com_time*1000, sche->com_transmission*1000);
             total += sche->com_time*1000;
@@ -385,12 +383,15 @@ int main(int argc,char **argv){
         index.nprobe = int(ncentroids * ratio);
 
         auto tt0 = elapsed();
+        double sampletime = 0.;
         int i;
         for (i = 0; i < nq / bs; i++){
             index.search(bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
+            sampletime += index.sampletime->conten;
         }
         auto tt1 = elapsed();
         double total = tt1 - tt0;
+        total -= sampletime;
 
         double acc = 0.;
         for (int j = 0; j < i * bs; j++){
@@ -401,6 +402,7 @@ int main(int argc,char **argv){
         acc *= 100;
 
         printf("Ave Latency : %.3f ms\n", total / i * 1000);
+        printf("Ave Sample Time : %.3f ms\n", sampletime / i * 1000);
         printf("Ave accuracy : %.1f%% \n", acc);
 
         delete[] xq;

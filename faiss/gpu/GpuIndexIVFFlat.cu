@@ -48,11 +48,13 @@ GpuIndexIVFFlat::GpuIndexIVFFlat(
     // faiss::Index params
     this->is_trained = false;
 
+    this->sampletime = new warpdouble();
+
     // We haven't trained ourselves, so don't construct the IVFFlat
     // index yet
 }
 
-GpuIndexIVFFlat::~GpuIndexIVFFlat() {}
+GpuIndexIVFFlat::~GpuIndexIVFFlat() {delete sampletime;}
 
 void GpuIndexIVFFlat::reserveMemory(size_t numVecs) {
     reserveMemoryVecs_ = numVecs;
@@ -244,7 +246,8 @@ void GpuIndexIVFFlat::searchImpl_(
     Tensor<Index::idx_t, 2, true> outLabels(
             const_cast<Index::idx_t*>(labels), {n, k});
 
-    index_->query(queries, nprobe, k, outDistances, outLabels);
+    auto comtime = index_->query(queries, nprobe, k, outDistances, outLabels);
+    sampletime->conten = comtime;
 }
 
 } // namespace gpu

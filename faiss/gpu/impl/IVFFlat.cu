@@ -27,6 +27,12 @@
 namespace faiss {
 namespace gpu {
 
+double timeel() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
+
 IVFFlat::IVFFlat(
         GpuResources* res,
         FlatIndex* quantizer,
@@ -167,7 +173,7 @@ void IVFFlat::appendVectors_(
     }
 }
 
-void IVFFlat::query(
+double IVFFlat::query(
         Tensor<float, 2, true>& queries,
         int nprobe,
         int k,
@@ -197,6 +203,7 @@ void IVFFlat::query(
 
     // Find the `nprobe` closest lists; we can use int indices both
     // internally and externally
+    auto t0 = timeel();
     quantizer_->query(
             queries,
             nprobe,
@@ -205,6 +212,7 @@ void IVFFlat::query(
             coarseDistances,
             coarseIndices,
             false);
+    auto t1 = timeel();
 
     DeviceTensor<float, 3, true> residualBase(
             resources_,
@@ -269,6 +277,7 @@ void IVFFlat::query(
         // GPU
         outIndices.copyFrom(hostOutIndices, stream);
     }
+    return t1 - t0;
 }
 
 } // namespace gpu

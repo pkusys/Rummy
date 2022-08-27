@@ -17,6 +17,10 @@ struct IndexIVFFlat;
 namespace faiss {
 namespace gpu {
 
+struct warpdouble{
+    double conten;
+};
+
 class IVFFlat;
 class GpuIndexFlat;
 
@@ -100,7 +104,7 @@ class GpuIndexIVFFlat : public GpuIndexIVF {
             float* distances,
             Index::idx_t* labels) const override;
 
-   protected:
+   public:
     /// Our configuration options
     const GpuIndexIVFFlatConfig ivfFlatConfig_;
 
@@ -109,6 +113,8 @@ class GpuIndexIVFFlat : public GpuIndexIVF {
 
     /// Instance that we own; contains the inverted list
     std::unique_ptr<IVFFlat> index_;
+
+    warpdouble * sampletime;
 };
 
 } // namespace gpu
