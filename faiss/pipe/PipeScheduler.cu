@@ -456,11 +456,11 @@ void PipeScheduler::group(){
             groups.push_back(part_size);
         }
         else if (batch_size <= 8){
-            groups.push_back(part_size / 4);
+            // groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
         else{
-            groups.push_back(part_size / 4);
+            // groups.push_back(part_size / 4);
             groups.push_back(part_size);
         }
     }

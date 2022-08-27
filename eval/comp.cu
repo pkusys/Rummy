@@ -254,7 +254,7 @@ int main(int argc,char **argv){
         }
         printf("[%.3f s] Finish Profile\n",
                 elapsed() - t0);
-        nq = 2560;
+        nq = 10000;
         // Start queries
         std::vector<float> dis(nq * input_k);
         std::vector<int> idx(nq * input_k);
@@ -297,7 +297,7 @@ int main(int argc,char **argv){
     else if (che == 1){
         auto t0 = elapsed();
         omp_set_num_threads(8);
-        int ncentroids = 256 * 8;
+        int ncentroids = 2588;
 
         int dev_no = 0;
         faiss::gpu::StandardGpuResources resources;
@@ -378,7 +378,7 @@ int main(int argc,char **argv){
             gtd = fvecs_read(gtD.c_str(), &k, &nq2);
             assert(nq2 == nq || !"incorrect nb of ground truth entries");
         }
-        nq = 2560;
+        nq = 10000;
         // Start queries
         std::vector<float> dis(nq * input_k);
         std::vector<faiss::Index::idx_t> idx(nq * input_k);
