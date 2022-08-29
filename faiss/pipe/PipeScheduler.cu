@@ -232,7 +232,7 @@ void *computation(void *arg){
 PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
         int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
         int* bcluster_query_matrix_, PipeProfiler* profiler_,
-        int queryMax_, int clusMax_,std::vector<Arecord>& record_com_, std::map<int, float>& record_tran_, bool free_) 
+        int queryMax_, int clusMax_,std::vector<Arecord>& record_com_, std::vector<Arecord>& record_tran_, bool free_) 
         : index_(index), pc_(pc), pgr_(pgr), bcluster_cnt(bcluster_cnt_), profiler(profiler_),
         bcluster_list(bcluster_list_), query_per_bcluster(query_per_bcluster_), \
         maxquery_per_bcluster(maxquery_per_bcluster_), \
@@ -261,7 +261,7 @@ PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResour
 
 PipeScheduler::PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label,
-            std::vector<Arecord>& record_com_, std::map<int, float>& record_tran_, bool free_)
+            std::vector<Arecord>& record_com_, std::vector<Arecord>& record_tran_, bool free_)
             : index_(index), pc_(pc), pgr_(pgr), profiler(index->profiler), batch_size(n),
             record_tran(record_tran_), record_com(record_com_) {
                 DeviceScope *scope;
@@ -769,7 +769,7 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
                         pgr_->memcpyh2d(mb.pages[j], h2d_stream);
                     }
                     float real_tran = elapsed() - tt0;
-                    record_tran[num] = real_tran;
+                    record_tran.push_back(Arecord(0, num, real_tran));
                     com_transmission += real_tran;
                     break;
                 }
@@ -810,12 +810,13 @@ void PipeScheduler::process(int n, float *xq, int k, float *dis, int *label){
         param->index = this->index_;
         param->device = device;
 
-        pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
-
+        computation(param);
+        //pthread_create(&(pc_->com_threads[i]), NULL, computation, param);
+        
     }
     for (int i = 0 ; i < num_group; i++){
-        int res = pthread_join(pc_->com_threads[i], NULL);
-        FAISS_ASSERT(res == 0);
+        //int res = pthread_join(pc_->com_threads[i], NULL);
+        //FAISS_ASSERT(res == 0);
     }
 
     // Check all exec threads

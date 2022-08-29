@@ -325,7 +325,7 @@ int main(int argc,char **argv){
     double tt0, tt1, total = 0., opt = 0.;
 
     std::vector<faiss::gpu::Arecord> record_com;
-    std::map<int, float> record_tran;
+    std::vector<faiss::gpu::Arecord> record_tran;
 
     std::map<int,float> profile_tran;
     std::map<int, float> profile_com;
@@ -359,17 +359,30 @@ int main(int argc,char **argv){
 
     fprintf(f_profile,"ncentroids:%d\n", ncentroids);
 
-    fprintf(f_profile, "Real Tran:\n");
-
     std::map<int, std::pair<int, double>> com_keys;
+    std::map<int, std::pair<int, double>> tran_keys;
 
+/*
     for(auto i = record_tran.begin(); i != record_tran.end() ; i++){
         fprintf(f_profile, "%d:%f\n", i->first, i->second * 1000);
     }
     fprintf(f_profile, "%d:%f\n", 0, 0.);
-
+*/
 
     
+    for(auto i = record_tran.begin(); i != record_tran.end() ; i++){
+        if(tran_keys.find(i->dataCnt) != tran_keys.end()){
+            tran_keys[i->dataCnt].second += i->value * 1000;
+            tran_keys[i->dataCnt].first += 1;
+            printf("%d:%f\n", i->dataCnt, i->value * 1000);
+        }
+        else{
+            tran_keys[i->dataCnt].first = 1;
+            tran_keys[i->dataCnt].second = i->value * 1000;
+            printf("%d:%f\n", i->dataCnt, i->value * 1000);
+        }
+    }
+
     for(auto i = record_com.begin(); i != record_com.end() ; i++){
         if(com_keys.find(i->dataCnt) != com_keys.end()){
             com_keys[i->dataCnt].second += i->value * 1000;
@@ -388,6 +401,12 @@ int main(int argc,char **argv){
         float real = index->profiler->queryTran(i);
         profile_tran[i] = real;
     }
+
+    fprintf(f_profile, "Real Tran:\n");
+    for(auto i = tran_keys.begin(); i != tran_keys.end() ; i++){
+        fprintf(f_profile, "%d:%f\n", i->first, i->second.second/i->second.first);
+    }
+    fprintf(f_profile, "%d:%f\n", 0, 0.);
 
     fprintf(f_profile, "Profile Tran:\n");
     for(auto i = profile_tran.begin(); i != profile_tran.end() ; i++){

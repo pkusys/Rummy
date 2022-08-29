@@ -56,12 +56,12 @@ public:
     PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr, int bcluster_cnt_,
             int* bcluster_list_, int* query_per_bcluster_, int maxquery_per_bcluster_,
             int* bcluster_query_matrix_, PipeProfiler* profiler_,
-            int queryMax_, int clusMax_,std::vector<Arecord>& record_com_, std::map<int, float>& record_tran_,
+            int queryMax_, int clusMax_,std::vector<Arecord>& record_com_, std::vector<Arecord>& record_tran_,
             bool free_ = true);
 
     PipeScheduler(IndexIVFPipe* index, PipeCluster* pc, PipeGpuResources* pgr,
             int n, float *xq, int k, float *dis, int *label,
-            std::vector<Arecord>& record_com_, std::map<int, float>& record_tran_, bool free_ = true);
+            std::vector<Arecord>& record_com_, std::vector<Arecord>& record_tran_, bool free_ = true);
 
     ~PipeScheduler();
 
@@ -185,7 +185,7 @@ public:
 
     double com_transmission = 0.;
 
-    std::map<int, float>& record_tran;
+    std::vector<Arecord>& record_tran;
 
     std::vector<Arecord>& record_com;
 
