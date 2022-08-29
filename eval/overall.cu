@@ -175,6 +175,15 @@ int main(int argc,char **argv){
         dim = 200;
         ncentroids = 1326;
     }
+    else if (p1 == "text30"){
+        db = "/workspace/data-gpu/text/text30M.fvecs";
+        train_db = "/workspace/data/text/text10M.fvecs";
+        query = "/workspace/data-gpu/text/query.fvecs";
+        gtI = "/workspace/data-gpu/text/text30Mgti.ivecs";
+        gtD = "/workspace/data-gpu/text/text30Mgtd.fvecs";
+        dim = 200;
+        ncentroids = 1324;
+    }
     else{
         printf("Your input dataset is not included yet! \n");
         return 0;
@@ -194,7 +203,7 @@ int main(int argc,char **argv){
     config.device = dev_no;
     faiss::gpu::GpuIndexIVFFlat *index;
 
-    if (p1 == "text"){
+    if (p1 == "text" || p1 == "text30"){
         index = new faiss::gpu::GpuIndexIVFFlat(
             &resources, dim, ncentroids, faiss::METRIC_INNER_PRODUCT, config);
     }

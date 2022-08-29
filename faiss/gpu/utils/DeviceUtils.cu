@@ -125,7 +125,11 @@ int getDeviceForAddress(const void* p) {
     // FIXME: what to use for managed memory?
     if (att.type == cudaMemoryTypeDevice) {
         return att.device;
-    } else {
+    } 
+    else if (att.type == cudaMemoryTypeManaged){
+        return -2;
+    }
+    else {
         return -1;
     }
 #endif

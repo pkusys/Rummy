@@ -196,24 +196,35 @@ __host__ void Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::copyFrom(
         int ourDev = getDeviceForAddress(this->data_);
         int tDev = getDeviceForAddress(t.data());
 
-        if (tDev == -1) {
+        if (tDev == -2 || ourDev == -2){
             CUDA_VERIFY(cudaMemcpyAsync(
                     this->data_,
                     t.data(),
                     this->getSizeInBytes(),
-                    ourDev == -1 ? cudaMemcpyHostToHost
-                                 : cudaMemcpyHostToDevice,
-                    stream));
-        } else {
-            CUDA_VERIFY(cudaMemcpyAsync(
-                    this->data_,
-                    t.data(),
-                    this->getSizeInBytes(),
-                    ourDev == -1 ? cudaMemcpyDeviceToHost
-                                 : cudaMemcpyDeviceToDevice,
+                    cudaMemcpyDefault,
                     stream));
         }
+        else{
+            if (tDev == -1) {
+                CUDA_VERIFY(cudaMemcpyAsync(
+                        this->data_,
+                        t.data(),
+                        this->getSizeInBytes(),
+                        ourDev == -1 ? cudaMemcpyHostToHost
+                                    : cudaMemcpyHostToDevice,
+                        stream));
+            } else {
+                CUDA_VERIFY(cudaMemcpyAsync(
+                        this->data_,
+                        t.data(),
+                        this->getSizeInBytes(),
+                        ourDev == -1 ? cudaMemcpyDeviceToHost
+                                    : cudaMemcpyDeviceToDevice,
+                        stream));
+            }
+        }
     }
+    cudaStreamSynchronize(stream);
 }
 
 template <
@@ -241,7 +252,16 @@ __host__ void Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::copyTo(
         int ourDev = getDeviceForAddress(this->data_);
         int tDev = getDeviceForAddress(t.data());
 
-        if (tDev == -1) {
+        if (tDev == -2 || ourDev == -2){
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    t.data(),
+                    this->data_,
+                    this->getSizeInBytes(),
+                    cudaMemcpyDefault,
+                    stream));
+        }
+        else{
+            if (tDev == -1) {
             CUDA_VERIFY(cudaMemcpyAsync(
                     t.data(),
                     this->data_,
@@ -249,16 +269,18 @@ __host__ void Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::copyTo(
                     ourDev == -1 ? cudaMemcpyHostToHost
                                  : cudaMemcpyDeviceToHost,
                     stream));
-        } else {
-            CUDA_VERIFY(cudaMemcpyAsync(
-                    t.data(),
-                    this->data_,
-                    this->getSizeInBytes(),
-                    ourDev == -1 ? cudaMemcpyHostToDevice
-                                 : cudaMemcpyDeviceToDevice,
-                    stream));
+            } else {
+                CUDA_VERIFY(cudaMemcpyAsync(
+                        t.data(),
+                        this->data_,
+                        this->getSizeInBytes(),
+                        ourDev == -1 ? cudaMemcpyHostToDevice
+                                    : cudaMemcpyDeviceToDevice,
+                        stream));
+            }
         }
     }
+    cudaStreamSynchronize(stream);
 }
 
 template <
@@ -281,13 +303,32 @@ __host__ void Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::copyFrom(
         GPU_FAISS_ASSERT(this->data_);
         int ourDev = getDeviceForAddress(this->data_);
 
-        CUDA_VERIFY(cudaMemcpyAsync(
-                this->data_,
-                v.data(),
-                this->getSizeInBytes(),
-                ourDev == -1 ? cudaMemcpyHostToHost : cudaMemcpyHostToDevice,
-                stream));
+        if (ourDev == -1){
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    this->data_,
+                    v.data(),
+                    this->getSizeInBytes(),
+                    cudaMemcpyHostToHost,
+                    stream));
+        }
+        else if (ourDev == -2){
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    this->data_,
+                    v.data(),
+                    this->getSizeInBytes(),
+                    cudaMemcpyDefault,
+                    stream));
+        }
+        else{
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    this->data_,
+                    v.data(),
+                    this->getSizeInBytes(),
+                    cudaMemcpyHostToDevice,
+                    stream));
+        }
     }
+    cudaStreamSynchronize(stream);
 }
 
 template <
@@ -306,11 +347,19 @@ __host__ std::vector<T> Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::
 
     if (!out.empty()) {
         int ourDev = getDeviceForAddress(this->data_);
-
         if (ourDev == -1) {
             std::memcpy(
                     out.data(), this->data_, this->numElements() * sizeof(T));
-        } else {
+        } 
+        else if (ourDev == -2){
+            CUDA_VERIFY(cudaMemcpyAsync(
+                    out.data(),
+                    this->data_,
+                    this->numElements() * sizeof(T),
+                    cudaMemcpyDefault,
+                    stream));
+        }
+        else {
             CUDA_VERIFY(cudaMemcpyAsync(
                     out.data(),
                     this->data_,
@@ -319,7 +368,7 @@ __host__ std::vector<T> Tensor<T, Dim, InnerContig, IndexT, PtrTraits>::
                     stream));
         }
     }
-
+    cudaStreamSynchronize(stream);
     return out;
 }
 
