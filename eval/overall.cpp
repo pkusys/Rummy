@@ -204,7 +204,7 @@ int main(int argc, char **argv){
 
     auto t0 = elapsed();
 
-    omp_set_num_threads(bs);
+    omp_set_num_threads(20);
 
     std::string index_c = "IVF" + std::to_string(ncentroids) + ",Flat";
     faiss::Index* index;
@@ -298,6 +298,8 @@ int main(int argc, char **argv){
     if (DC(faiss::IndexIVF)){
         ix->nprobe = ncentroids / 24;
     }
+
+    omp_set_num_threads(bs);
 
     // output buffers
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
