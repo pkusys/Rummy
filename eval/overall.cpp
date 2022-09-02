@@ -26,6 +26,12 @@
 
 #define DC(classname) classname* ix = dynamic_cast<classname*>(index)
 
+double elapsed() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return tv.tv_sec + tv.tv_usec * 1e-6;
+}
+
 double inter_sec(faiss::Index::idx_t *taget, int *gt, int k){
     double res = 0.;
     for (int i = 0; i < k; i++){
@@ -114,42 +120,48 @@ int* ivecs_read(const char* fname, size_t* d_out, size_t* n_out) {
 }
 
 std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, int slice = 100) {
+    std::vector<float*> vec(slice);
     FILE* f = fopen(fname, "r");
-    if (!f) {
-        fprintf(stderr, "could not open %s\n", fname);
-        perror("");
-        abort();
-    }
     int d, n;
     fread(&n, sizeof(int), 1, f);
     fread(&d, sizeof(int), 1, f);
+    fclose(f);
     printf("d : %d, n: %d\n", d, n);
     assert((d > 0 && d < 1000000) || !"unreasonable dimension");
     *d_out = d;
     *n_out = n;
     int64_t total_size = int64_t(d) * int64_t(n);
     int64_t slice_size = total_size / slice;
-    int64_t nr = 0;
-
-    std::vector<float*> vec;
+    int num = 0;
+#pragma omp parallel for
     for (int i = 0; i < slice; i++){
+        auto t0 = elapsed();
+        FILE* f = fopen(fname, "r");
+        if (!f) {
+            fprintf(stderr, "could not open %s\n", fname);
+            perror("");
+            abort();
+        }
+        int64_t nr = 0;
+        int64_t start = slice_size * i * sizeof(float) + 8;
+        fseek(f, start, SEEK_SET);
         float *x = new float[slice_size];
         nr += fread(x, sizeof(float), slice_size, f);
-        vec.push_back(x);
-        printf("Read %d/%d slice done...\n", i, slice);
+        vec[i] = x;
+        auto t1 = elapsed();
+        int id = omp_get_thread_num();
+        #pragma critical
+        {
+            printf("Read %d/%d slice done... , Thread %d : %.3f s\n", i, slice, id, t1 - t0);
+            printf("Read %d/%d done\n", num++, slice);
+        }
 
+        // int64_t nr = fread(x, sizeof(float), total_size, f);
+        // printf("Read finished, read %ld\n", nr);
+        // assert(nr == total_size || !"could not read whole file");
+        fclose(f);
     }
-    // int64_t nr = fread(x, sizeof(float), total_size, f);
-    printf("Read finished, read %ld\n", nr);
-    assert(nr == total_size || !"could not read whole file");
-    fclose(f);
     return vec;
-}
-
-double elapsed() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return tv.tv_sec + tv.tv_usec * 1e-6;
 }
 
 // ./script dataset-name bs topk (./overall deep 256 10)
@@ -175,36 +187,36 @@ int main(int argc, char **argv){
         return 0;
     }
     if (p1 == "sift"){
-        db = "/workspace/data-gpu/sift/sift40M.fvecs";
+        db = "/billion-data/sift1B.fbin";
         train_db = "/workspace/data/sift/sift10M/sift10M.fvecs";
-        query = "/workspace/data-gpu/sift/query.fvecs";
-        gtI = "/workspace/data-gpu/sift/sift40Mgti.ivecs";
-        gtD = "/workspace/data-gpu/sift/sift40Mgtd.fvecs";
+        query = "/workspace/data/sift/sift10M/query.fvecs";
+        gtI = "/billion-data/sift1Bgti.ivecs";
+        gtD = "/billion-data/sift1Bgtd.fvecs";
         dim = 128;
         ncentroids = 1024;
     }
     else if (p1 == "deep"){
-        db = "/workspace/data-gpu/deep/deep50M.fvecs";
+        db = "/billion-data/deep1B.fbin";
         train_db = "/workspace/data/deep/deep10M.fvecs";
-        query = "/workspace/data-gpu/deep/query.fvecs";
-        gtI = "/workspace/data-gpu/deep/deep50Mgti.ivecs";
-        gtD = "/workspace/data-gpu/deep/deep50Mgtd.fvecs";
+        query = "/workspace/data/deep/query.fvecs";
+        gtI = "/billion-data/deep1Bgti.ivecs";
+        gtD = "/billion-data/deep1Bgtd.fvecs";
         dim = 96;
         ncentroids = 1024;
     }
     else if (p1 == "text"){
-        db = "/workspace/data-gpu/text/text25M.fvecs";
+        db = "/billion-data/text1B.fbin";
         train_db = "/workspace/data/text/text10M.fvecs";
         query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/workspace/data-gpu/text/text25Mgti.ivecs";
-        gtD = "/workspace/data-gpu/text/text25Mgtd.fvecs";
+        gtI = "/billion-data/text1Bgti.ivecs";
+        gtD = "/billion-data/text1Bgtd.fvecs";
         dim = 200;
         ncentroids = 1024;
     }
 
     auto t0 = elapsed();
 
-    omp_set_num_threads(20);
+    omp_set_num_threads(40);
 
     std::string index_c = "IVF" + std::to_string(ncentroids) + ",Flat";
     faiss::Index* index;
@@ -234,8 +246,10 @@ int main(int argc, char **argv){
 
         size_t nb, d2;
         int slice = 100;
-        // std::vector<float *> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
-        std::vector<float *> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
+        omp_set_num_threads(8);
+        std::vector<float *> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
+        // std::vector<float *> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
+        omp_set_num_threads(40);
         assert(d == d2 || !"dataset does not have same dimension as train set");
 
         printf("[%.3f s] Indexing database, size %ld*%ld\n",
@@ -244,8 +258,11 @@ int main(int argc, char **argv){
                d);
 
         for (int i = 0; i < slice; i++){
+            double tt0 = elapsed();
             index->add(nb / slice, xbs[i]);
             delete[] xbs[i];
+            double tt1 = elapsed();
+            printf("Index %d/%d done : %.3f s\n", i, slice, tt1 - tt0);
         }
     }
 
@@ -291,12 +308,12 @@ int main(int argc, char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 1000;
+    nq = 10000;
 
     auto tt0 = elapsed();
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = ncentroids / 24;
+        ix->nprobe = ncentroids / 16;
     }
 
     omp_set_num_threads(bs);
