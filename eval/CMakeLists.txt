@@ -27,3 +27,6 @@ target_link_libraries(overall_no_pin PRIVATE faiss)
 
 add_executable(overall_no_lru EXCLUDE_FROM_ALL overall_no_lru.cu)
 target_link_libraries(overall_no_lru PRIVATE faiss)
+
+add_executable(overall_billion EXCLUDE_FROM_ALL overall_billion.cu)
+target_link_libraries(overall_billion PUBLIC faiss)
