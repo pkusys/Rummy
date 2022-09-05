@@ -126,27 +126,76 @@ float* fvecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     return x;
 }
 
+std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, int slice = 100) {
+    std::vector<float*> vec(slice);
+    FILE* f = fopen(fname, "r");
+    int d, n;
+    fread(&n, sizeof(int), 1, f);
+    fread(&d, sizeof(int), 1, f);
+    fclose(f);
+    printf("d : %d, n: %d\n", d, n);
+    assert((d > 0 && d < 1000000) || !"unreasonable dimension");
+    *d_out = d;
+    *n_out = n;
+    int64_t total_size = int64_t(d) * int64_t(n);
+    int64_t slice_size = total_size / slice;
+    int num = 0;
+#pragma omp parallel for
+    for (int i = 0; i < slice; i++){
+        auto t0 = elapsed();
+        FILE* f = fopen(fname, "r");
+        if (!f) {
+            fprintf(stderr, "could not open %s\n", fname);
+            perror("");
+            abort();
+        }
+        int64_t nr = 0;
+        int64_t start = slice_size * i * sizeof(float) + 8;
+        fseek(f, start, SEEK_SET);
+        float *x = new float[slice_size];
+        nr += fread(x, sizeof(float), slice_size, f);
+        vec[i] = x;
+        auto t1 = elapsed();
+        int id = omp_get_thread_num();
+        #pragma critical
+        {
+            printf("Read %d/%d slice done... , Thread %d : %.3f s\n", i, slice, id, t1 - t0);
+            printf("Read %d/%d done\n", num++, slice);
+        }
+
+        // int64_t nr = fread(x, sizeof(float), total_size, f);
+        // printf("Read finished, read %ld\n", nr);
+        // assert(nr == total_size || !"could not read whole file");
+        fclose(f);
+    }
+    return vec;
+}
+
 // not very clean, but works as long as sizeof(int) == sizeof(float)
 int* ivecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     return (int*)fvecs_read(fname, d_out, n_out);
 }
 
+// ./overall deep bs topk slice
 int main(int argc,char **argv){
     omp_set_num_threads(8);
 
     std::cout << argc << " arguments" <<std::endl;
-    if(argc - 1 != 3){
-        printf("You should at least input 3 params: the dataset name, batch size and topk\n");
+    if(argc - 1 != 4){
+        printf("You should at least input 3 params: the dataset name, batch size, topk and slice number\n");
         return 0;
     }
 
     std::string p1 = argv[1];
     std::string p2 = argv[2];
     std::string p3 = argv[3];
+    std::string p4 = argv[4];
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
+    int slice = std::stoi(p4);
 
     std::string db, train_db, query, gtI, gtD;
+    int ncentroids;
     int dim;
     double train_ratio;
     if (input_k>100 || input_k <=0){
@@ -154,42 +203,44 @@ int main(int argc,char **argv){
         return 0;
     }
     if (p1 == "sift"){
-        db = "/workspace/data-gpu/sift/sift40M.fvecs";
+        db = "/billion-data/sift1B.fbin";
         train_db = "/workspace/data/sift/sift10M/sift10M.fvecs";
-        query = "/workspace/data-gpu/sift/query.fvecs";
-        gtI = "/workspace/data-gpu/sift/sift40Mgti.ivecs";
-        gtD = "/workspace/data-gpu/sift/sift40Mgtd.fvecs";
+        query = "/workspace/data/sift/sift10M/query.fvecs";
+        gtI = "/billion-data/sift1Bgti.ivecs";
+        gtD = "/billion-data/sift1Bgtd.fvecs";
         dim = 128;
-        train_ratio = 4;
+        ncentroids = 1024;
+        train_ratio = 5;
     }
     else if (p1 == "deep"){
-        db = "/workspace/data-gpu/deep/deep50M.fvecs";
+        db = "/workspace/data/deep/deep10M.fvecs";
         train_db = "/workspace/data/deep/deep10M.fvecs";
-        query = "/workspace/data-gpu/deep/query.fvecs";
-        gtI = "/workspace/data-gpu/deep/deep50Mgti.ivecs";
-        gtD = "/workspace/data-gpu/deep/deep50Mgtd.fvecs";
+        query = "/workspace/data/deep/query.fvecs";
+        gtI = "/workspace/data/deep/idx.ivecs";
+        gtD = "/workspace/data/deep/dis.fvecs";
         dim = 96;
+        ncentroids = 1024;
         train_ratio = 5;
     }
     else if (p1 == "text"){
-        db = "/workspace/data-gpu/text/text25M.fvecs";
+        db = "/billion-data/text1B.fbin";
         train_db = "/workspace/data/text/text10M.fvecs";
         query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/workspace/data/text/text25Mgti.ivecs";
-        gtD = "/workspace/data/text/text25Mgtd.fvecs";
+        gtI = "/billion-data/text1Bgti.ivecs";
+        gtD = "/billion-data/text1Bgtd.fvecs";
         dim = 200;
-        train_ratio = 2.5;
+        ncentroids = 1024;
+        train_ratio = 5;
     }
     else{
         printf("Your input dataset is not included yet! \n");
         return 0;
     }
 
-    const char* index_key = "IVF256,Flat";
+    std::string index_c = "IVF" + std::to_string(ncentroids) + ",Flat";
     std::vector<faiss::Index*> indexes;
-    int slice = 2;
+    // int slice = 8;
 
-    int ncentroids = 256;
     auto t0 = elapsed();
 
     size_t d;
@@ -197,19 +248,22 @@ int main(int argc,char **argv){
         printf("[%.3f s] Loading train set\n", elapsed() - t0);
 
         size_t nt;
-        std::vector<float*> xts = fvecs_reads(db.c_str(), &d, &nt, slice);
+        // std::vector<float*> xts = fvecs_reads(db.c_str(), &d, &nt, slice);
+        omp_set_num_threads(8);
+        std::vector<float*> xts = fbin_reads(db.c_str(), &d, &nt, slice);
+        omp_set_num_threads(40);
 
         printf("[%.3f s] Preparing index \"%s\" d=%ld\n",
                elapsed() - t0,
-               index_key,
+               index_c.c_str(),
                d);
         if (p1 == "text"){
             for (int i = 0; i < slice; i++)
-                indexes.push_back(faiss::index_factory(d, index_key, faiss::METRIC_INNER_PRODUCT));
+                indexes.push_back(faiss::index_factory(d, index_c.c_str(), faiss::METRIC_INNER_PRODUCT));
         }
         else{
             for (int i = 0; i < slice; i++)
-                indexes.push_back(faiss::index_factory(d, index_key));
+                indexes.push_back(faiss::index_factory(d, index_c.c_str()));
         }
 
         printf("[%.3f s] Training on %ld vectors\n", elapsed() - t0, nt);
@@ -225,7 +279,10 @@ int main(int argc,char **argv){
         printf("[%.3f s] Loading database\n", elapsed() - t0);
 
         size_t d2;
-        std::vector<float*> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
+        // std::vector<float*> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
+        omp_set_num_threads(8);
+        std::vector<float*> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
+        omp_set_num_threads(40);
         assert(d == d2 || !"dataset does not have same dimension as train set");
 
         printf("[%.3f s] Indexing database, size %ld*%ld\n",
@@ -288,7 +345,7 @@ int main(int argc,char **argv){
     faiss::gpu::GpuIndexIVFFlatConfig config;
     config.device = dev_no;
 
-    nq = 512;
+    nq = 10000;
 
     std::vector<faiss::Index::idx_t*> idxes(slice);
     std::vector<float*> dises(slice);
