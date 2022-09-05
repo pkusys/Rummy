@@ -6,6 +6,3 @@
 
 add_executable(overall EXCLUDE_FROM_ALL overall.cpp)
 target_link_libraries(overall PUBLIC faiss)
-
-add_executable(process-data EXCLUDE_FROM_ALL process-data.cpp)
-target_link_libraries(process-data PUBLIC faiss)
