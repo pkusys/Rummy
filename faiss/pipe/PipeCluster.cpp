@@ -123,18 +123,28 @@ void PipeCluster::balance(const float svr){
 
     // The average number of the cluster sizes
     int ave = std::accumulate(CluSize.begin(), CluSize.end(), 0);
+    int total_num = ave;
     ave /= nlist;
 
+    int basenum;
+
+    if (ave * nlist > 100000000){
+        basenum = 256 * 64;
+    }
+    else{
+        basenum = 256;
+    }
+
     // Round down to the multiple of 256
-    int sta = (ave / 256) * 256;
-    FAISS_ASSERT(sta >= 256);
+    int sta = (ave / basenum) * basenum;
+    FAISS_ASSERT(sta >= basenum);
 
     // The balanced cluster number
     std::vector<int> tmp;
     bool re = false;
     
     // Test if the balance number satifies the requirement
-    while(sta >= 256){
+    while(sta >= basenum){
         tmp.clear();
         for(int i = 0; i < CluSize.size(); i++){
             int cnum = CluSize[i];
@@ -146,18 +156,20 @@ void PipeCluster::balance(const float svr){
                 tmp.push_back(cnum);
         }
         float std = StdDev(tmp);
-        if (std / sta <= svr){
+        // int number = sta * tmp.size();
+        if (std / sta <= svr || tmp.size() > CluSize.size() * 11){
             std::cout << "The std dev after balancing: " 
-                    << std / sta << "\n";
+                    << std / sta << "  BSize : " << tmp.size() 
+                    << " sta: " << sta << " basenum: " << basenum  <<"\n";
             re = true;
             break;
         }
-        sta -= 256;
+        sta -= basenum;
     }
 
 
     // Initialize the balanced attributes
-    bcs = re ? sta : sta + 256;
+    bcs = re ? sta : sta + basenum;
 
     BCluSize = std::move(tmp);
 
@@ -190,6 +202,7 @@ void PipeCluster::mallocPinnedMem(){
     int index = 0;
 
     for (int i = 0; i < nlist; i++){
+        printf("Balance %d-th cluster\n", i);
         auto balaClu = O2Bmap[i];
         int num = balaClu.size();
         float *nop = noPinnedMem[i];

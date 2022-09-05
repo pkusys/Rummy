@@ -154,7 +154,7 @@ std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, 
     int64_t total_size = int64_t(d) * int64_t(n);
     int64_t slice_size = total_size / slice;
     int num = 0;
-// #pragma omp parallel for
+#pragma omp parallel for
     for (int i = 0; i < slice; i++){
         auto t0 = elapsed();
         FILE* f = fopen(fname, "r");
@@ -165,21 +165,17 @@ std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, 
         }
         int64_t nr = 0;
         int64_t start = slice_size * i * sizeof(float) + 8;
-        printf("Start read\n");
         fseek(f, start, SEEK_SET);
-        printf("Start1 read\n");
         float *x = new float[slice_size];
-        printf("Start2 read\n");
         nr += fread(x, sizeof(float), slice_size, f);
-        printf("Finish read\n");
         vec[i] = x;
         auto t1 = elapsed();
         int id = omp_get_thread_num();
-        // #pragma critical
-        // {
+        #pragma critical
+        {
             printf("Read %d/%d slice done... , Thread %d : %.3f s\n", i, slice, id, t1 - t0);
             printf("Read %d/%d done\n", num++, slice);
-        // }
+        }
 
         // int64_t nr = fread(x, sizeof(float), total_size, f);
         // printf("Read finished, read %ld\n", nr);
@@ -210,29 +206,29 @@ int main(int argc,char **argv){
         return 0;
     }
     if (p1 == "sift"){
-        db = "/billion-data/sift1B.fbin";
-        train_db = "/billion-data/sift/sift10M/sift10M.fvecs";
-        query = "/billion-data/sift/sift10M/query.fvecs";
-        gtI = "/billion-data/sift1Bgti.ivecs";
-        gtD = "/billion-data/sift1Bgtd.fvecs";
+        db = "/billion-data/data2/sift1B.fbin";
+        train_db = "/billion-data/data4/sift/sift10M/sift10M.fvecs";
+        query = "/billion-data/data4/sift/sift10M/query.fvecs";
+        gtI = "/billion-data/data2/sift1Bgti.ivecs";
+        gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
         ncentroids = 256;
     }
     else if (p1 == "deep"){
-        db = "/billion-data/deep1B.fbin";
-        train_db = "/billion-data/deep/deep10M.fvecs";
-        query = "/billion-data/deep/query.fvecs";
-        gtI = "/billion-data/deep1Bgti.ivecs";
-        gtD = "/billion-data/deep1Bgtd.fvecs";
+        db = "/billion-data/data1/deep1B.fbin";
+        train_db = "/billion-data/data4/deep/deep10M.fvecs";
+        query = "/billion-data/data4/deep/query.fvecs";
+        gtI = "/billion-data/data1/deep1Bgti.ivecs";
+        gtD = "/billion-data/data1/deep1Bgtd.fvecs";
         dim = 96;
         ncentroids = 384;
     }
     else if (p1 == "text"){
-        db = "/billion-data/text1B.fbin";
-        train_db = "/billion-data/text/text10M.fvecs";
-        query = "/billion-data-gpu/text/query.fvecs";
-        gtI = "/billion-data/text1Bgti.ivecs";
-        gtD = "/billion-data/text1Bgtd.fvecs";
+        db = "/billion-data/data3/text1B.fbin";
+        train_db = "/billion-data/data4/text/text10M.fvecs";
+        query = "/billion-data-gpu/data4/text/query.fvecs";
+        gtI = "/billion-data/data3/text1Bgti.ivecs";
+        gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
         ncentroids = 192;
     }
@@ -278,7 +274,7 @@ int main(int argc,char **argv){
         omp_set_num_threads(8);
         std::vector<float *> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
         // std::vector<float *> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
-        omp_set_num_threads(40);
+        omp_set_num_threads(16);
         assert(d == d2 || !"dataset does not have same dimension as train set");
 
         printf("[%.3f s] Indexing database, size %ld*%ld\n",
@@ -337,13 +333,14 @@ int main(int argc,char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    omp_set_num_threads(8);
+    omp_set_num_threads(96);
 
     printf("[%.3f s] Start Balancing\n",
                elapsed() - t0);
     index->balance();
     printf("[%.3f s] Finishing Balancing: %d B clusters\n",
                elapsed() - t0, index->pipe_cluster->bnlist);
+    omp_set_num_threads(8);
 
     auto pc = index->pipe_cluster;
     pipe_res->initializeForDevice(0, pc);
@@ -363,7 +360,7 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    nq = 256;
+    nq = 2560;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
@@ -376,8 +373,8 @@ int main(int argc,char **argv){
         auto sche = new faiss::gpu::PipeScheduler(index, 
             pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
         tt1 = elapsed();
-        printf("Computation Time: %.3f ms, Transmission Time: %.3f ms\n", 
-            sche->com_time*1000, sche->com_transmission*1000);
+        printf("Computation Time: %.3f s, Transmission Time: %.3f s\n", 
+            sche->com_time, sche->com_transmission);
         total += (tt1 - tt0) * 1000;
         group_time += sche->group_time;
         reorder_time += sche->reorder_time;
@@ -391,8 +388,8 @@ int main(int argc,char **argv){
         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);
     }
 
-    printf("Ave Opt Latency : %.3f s\n", opt / i * 1000);
-    printf("Ave Latency : %.3f s\n", total / i * 1000);
+    printf("Ave Opt Latency : %.3f s\n", opt / i / 1000);
+    printf("Ave Latency : %.3f s\n", total / i /1000);
     printf("Ave Reorder Time : %.3f ms\n", reorder_time / i);
     printf("Ave Group Time : %.3f ms\n", group_time / i);
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
