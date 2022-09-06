@@ -202,7 +202,7 @@ int main(int argc, char **argv){
         gtI = "/billion-data/data1/deep1Bgti.ivecs";
         gtD = "/billion-data/data1/deep1Bgtd.fvecs";
         dim = 96;
-        ncentroids = 1024;
+        ncentroids = 2845;
     }
     else if (p1 == "text"){
         db = "/billion-data/data3/text1B.fbin";
@@ -308,15 +308,15 @@ int main(int argc, char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 1500;
+    nq = 2560;
 
     auto tt0 = elapsed();
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = ncentroids / 16;
+        ix->nprobe = ncentroids / 8;
     }
 
-    omp_set_num_threads(bs);
+    omp_set_num_threads(64);
 
     // output buffers
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
