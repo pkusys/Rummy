@@ -193,9 +193,9 @@ int main(int argc,char **argv){
 
     omp_set_num_threads(8);
 
-    // size_t nBytes = 25 * 1024 * 1024 * 1024ll;
-    // float *x;
-    // cudaMalloc((void**)&x, nBytes);
+    size_t nBytes = 25 * 1024 * 1024 * 1024ll;
+    float *x;
+    cudaMalloc((void**)&x, nBytes);
 
     int dev_no = 0;
     faiss::gpu::StandardGpuResources resources;
@@ -289,11 +289,11 @@ int main(int argc,char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 10000;
+    nq = 1000;
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
-    index->nprobe = ncentroids / 32;
+    index->nprobe = ncentroids / 8;
 
     auto tt0 = elapsed();
     int i;

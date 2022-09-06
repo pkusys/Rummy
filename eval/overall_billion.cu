@@ -225,7 +225,7 @@ int main(int argc,char **argv){
     else if (p1 == "text"){
         db = "/billion-data/data3/text1B.fbin";
         train_db = "/billion-data/data4/text/text10M.fvecs";
-        query = "/billion-data-gpu/data4/text/query.fvecs";
+        query = "/billion-data/data4/text/query.fvecs";
         gtI = "/billion-data/data3/text1Bgti.ivecs";
         gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
@@ -276,8 +276,10 @@ int main(int argc,char **argv){
 
         size_t nb, d2;
         int slice = 10;
+        omp_set_num_threads(8);
         // std::vector<float *> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
         std::vector<float *> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
+        omp_set_num_threads(64);
         assert(d == d2 || !"dataset does not have same dimension as train set");
 
         printf("[%.3f s] Indexing database, size %ld*%ld\n",
