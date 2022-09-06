@@ -364,7 +364,7 @@ int main(int argc,char **argv){
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
-    index->set_nprobe(ncentroids / 16);
+    index->set_nprobe(ncentroids / 8);
     double tt0, tt1, total = 0., opt = 0., group_time = 0., reorder_time = 0., nogroup = 0.;
 
     int i;

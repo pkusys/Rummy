@@ -315,6 +315,10 @@ void PipeGpuResources::initializeForDevice(int device, PipeCluster *pc){
     tempMemory_.emplace(device, std::move(mem));
 
     // Allocate Device memory
+    size_t avail;
+    size_t total;
+    cudaMemGetInfo(&avail, &total);
+    printf("Available GPU memory : %zu * 1024 * 1024\n", avail/(1024*1024ll));
     void* p = nullptr;
     auto err = cudaMalloc(&p, MaxDeviceSize_);
 
