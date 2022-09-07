@@ -379,7 +379,7 @@ int main(int argc,char **argv){
             double tt1 = elapsed();
             printf("Copy Time: %.3f s\n", (tt1 - tt0)*1);
             // Set nrpobe
-            gpuindex.nprobe = ncentroids / 16;
+            gpuindex.nprobe = ncentroids / 8;
             // std::cout << gpuindex.nprobe << "\n";
             gpuindex.search(bs, xq + d * (q * bs), input_k, 
                 dises[i] + input_k * (q * bs), idxes[i] + input_k * (q * bs));
