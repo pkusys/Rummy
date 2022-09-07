@@ -6,3 +6,6 @@
 
 add_executable(overall EXCLUDE_FROM_ALL overall.cu)
 target_link_libraries(overall PRIVATE faiss)
+
+add_executable(overall_billion EXCLUDE_FROM_ALL overall_billion.cu)
+target_link_libraries(overall_billion PUBLIC faiss)

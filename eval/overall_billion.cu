@@ -203,33 +203,33 @@ int main(int argc,char **argv){
         return 0;
     }
     if (p1 == "sift"){
-        db = "/billion-data/sift1B.fbin";
-        train_db = "/workspace/data/sift/sift10M/sift10M.fvecs";
-        query = "/workspace/data/sift/sift10M/query.fvecs";
-        gtI = "/billion-data/sift1Bgti.ivecs";
-        gtD = "/billion-data/sift1Bgtd.fvecs";
+        db = "/billion-data/data2/sift1B.fbin";
+        train_db = "/billion-data/data4/sift/sift10M/sift10M.fvecs";
+        query = "/billion-data/data4/sift/sift10M/query.fvecs";
+        gtI = "/billion-data/data2/sift1Bgti.ivecs";
+        gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
-        ncentroids = 1024;
+        ncentroids = 256;
         train_ratio = 5;
     }
     else if (p1 == "deep"){
-        db = "/workspace/data/deep/deep10M.fvecs";
-        train_db = "/workspace/data/deep/deep10M.fvecs";
-        query = "/workspace/data/deep/query.fvecs";
-        gtI = "/workspace/data/deep/idx.ivecs";
-        gtD = "/workspace/data/deep/dis.fvecs";
+        db = "/billion-data/data1/deep1B.fbin";
+        train_db = "/billion-data/data4/deep/deep10M.fvecs";
+        query = "/billion-data/data4/deep/query.fvecs";
+        gtI = "/billion-data/data1/deep1Bgti.ivecs";
+        gtD = "/billion-data/data1/deep1Bgtd.fvecs";
         dim = 96;
-        ncentroids = 1024;
+        ncentroids = 2845;
         train_ratio = 5;
     }
     else if (p1 == "text"){
-        db = "/billion-data/text1B.fbin";
-        train_db = "/workspace/data/text/text10M.fvecs";
-        query = "/workspace/data-gpu/text/query.fvecs";
-        gtI = "/billion-data/text1Bgti.ivecs";
-        gtD = "/billion-data/text1Bgtd.fvecs";
+        db = "/billion-data/data3/text1B.fbin";
+        train_db = "/billion-data/data4/text/text10M.fvecs";
+        query = "/billion-data/data4/text/query.fvecs";
+        gtI = "/billion-data/data3/text1Bgti.ivecs";
+        gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
-        ncentroids = 1024;
+        ncentroids = 1313;
         train_ratio = 5;
     }
     else{
@@ -345,7 +345,12 @@ int main(int argc,char **argv){
     faiss::gpu::GpuIndexIVFFlatConfig config;
     config.device = dev_no;
 
-    nq = 2560;
+    if(bs == 1){
+        nq = 300;
+    }
+    else{
+        nq = 2560;
+    }
 
     std::vector<faiss::Index::idx_t*> idxes(slice);
     std::vector<float*> dises(slice);
@@ -360,6 +365,7 @@ int main(int argc,char **argv){
     int q = 0;
     auto time0 = elapsed();
     for (; q < nq/ bs; q++){
+        auto ti0 = elapsed();
         for (int i = 0; i < slice; i++){
             faiss::gpu::GpuIndexIVFFlat gpuindex(
                 &resources, d, ncentroids, faiss::METRIC_L2, config);
@@ -393,7 +399,8 @@ int main(int argc,char **argv){
                 idx[num * input_k + i] = vec[i].second;
             }
         }
-
+        auto ti1 = elapsed();
+        printf("%d=th batch cost %.3f s\n", q, ti1 - ti0);
     }
     auto time1 = elapsed();
     auto total = time1 - time0;
