@@ -291,8 +291,11 @@ int main(int argc,char **argv){
                d);
 
         for (int i = 0; i < slice; i++){
+            auto tt0 = elapsed();
             indexes[i]->add(size_t(nb / slice), xbs[i]);
             delete[] xbs[i];
+            auto tt1 = elapsed();
+            printf("Add %d/%d done: %.3f\n", i, slice, tt1 - tt0);
         }
 
         printf("[%.3f s] Add database done\n", elapsed() - t0);
