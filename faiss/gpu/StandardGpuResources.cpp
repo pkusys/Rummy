@@ -430,7 +430,7 @@ void* StandardGpuResourcesImpl::allocMemory(const AllocRequest& req) {
         p = tempMemory_[adjReq.device]->allocMemory(adjReq.stream, adjReq.size);
 
     } else if (adjReq.space == MemorySpace::Device) {
-        auto err = cudaMallocManaged(&p, adjReq.size);
+        auto err = cudaMalloc(&p, adjReq.size);
 
         // Throw if we fail to allocate
         if (err != cudaSuccess) {

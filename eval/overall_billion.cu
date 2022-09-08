@@ -229,7 +229,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data3/text1Bgti.ivecs";
         gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
-        ncentroids = 192;
+        ncentroids = 1313;
     }
     else{
         printf("Your input dataset is not included yet! \n");
@@ -275,7 +275,7 @@ int main(int argc,char **argv){
         printf("[%.3f s] Loading database\n", elapsed() - t0);
 
         size_t nb, d2;
-        int slice = 10;
+        int slice = 100;
         omp_set_num_threads(8);
         // std::vector<float *> xbs = fvecs_reads(db.c_str(), &d2, &nb, slice);
         std::vector<float *> xbs = fbin_reads(db.c_str(), &d2, &nb, slice);
@@ -338,7 +338,12 @@ int main(int argc,char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 2560;
+    if(bs == 1){
+        nq = 300;
+    }
+    else{
+        nq = 2560;
+    }
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
