@@ -30,3 +30,6 @@ target_link_libraries(overall_no_lru PRIVATE faiss)
 
 add_executable(overall_billion EXCLUDE_FROM_ALL overall_billion.cu)
 target_link_libraries(overall_billion PUBLIC faiss)
+
+add_executable(overall_scalability EXCLUDE_FROM_ALL overall_scalability.cu)
+target_link_libraries(overall_scalability PUBLIC faiss)

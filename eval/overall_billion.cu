@@ -226,7 +226,7 @@ int main(int argc,char **argv){
     else if (p1 == "text"){
         db = "/billion-data/data3/text1B.fbin";
         train_db = "/billion-data/data4/text/text10M.fvecs";
-        query = "/billion-data-gpu/data4/text/query.fvecs";
+        query = "/billion-data/data4/text/query.fvecs";
         gtI = "/billion-data/data3/text1Bgti.ivecs";
         gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
@@ -360,7 +360,12 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    nq = 2560;
+    if(bs == 1){
+        nq = 300;
+    }
+    else{
+        nq = 2560;
+    }
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
