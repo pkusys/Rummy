@@ -295,7 +295,7 @@ int main(int argc,char **argv){
     else if (che == 1){
         auto t0 = elapsed();
         omp_set_num_threads(8);
-        int ncentroids = 2588;
+        int ncentroids = 2949;
 
         int dev_no = 0;
         faiss::gpu::StandardGpuResources resources;
