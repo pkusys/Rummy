@@ -121,6 +121,11 @@ PipeCluster::~PipeCluster(){
 
 void PipeCluster::balance(const float svr){
 
+    // for (int i = 0; i < CluSize.size(); i++){
+    //     printf("%d ", CluSize[i]);
+    // }
+    // printf("\n");
+
     // The average number of the cluster sizes
     int ave = std::accumulate(CluSize.begin(), CluSize.end(), 0);
     int total_num = ave;
@@ -248,13 +253,13 @@ void PipeCluster::mallocPinnedMem(){
         }
         else{
             for(int j = 0; j < num; j++){
-                size_t nobytes = BCluSize[index] * d * sizeof(float);
+                size_t nobytes = size_t(BCluSize[index]) * d * sizeof(float);
                 size_t bytes = BCluSize[index] % 32 == 0 ? BCluSize[index] : 
                     BCluSize[index] / 32 * 32 + 32 ;
                 bytes *= d * sizeof(float);
                 float *p;
 
-                size_t index_bytes = BCluSize[index] * sizeof(int);
+                size_t index_bytes = size_t(BCluSize[index]) * sizeof(int);
                 int *index_p;
 
                 // Malloc pinned memory
@@ -280,8 +285,8 @@ void PipeCluster::mallocPinnedMem(){
 #pragma omp parallel for if (nt > 1)
                 for (int l = 0; l < BCluSize[index]; l++) {
                     for (int m = 0; m < d; m++) {
-                        int oldidx = l * d + m;
-                        int newidx = m * 32 + (int)(l / 32) * (32 * d) + l % 32;
+                        size_t oldidx = l * d + m;
+                        size_t newidx = m * 32 + (size_t)(l / 32) * (32 * d) + l % 32;
                         p[newidx] = nop[oldidx]; 
                     }
                 }
