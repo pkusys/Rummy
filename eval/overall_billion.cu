@@ -209,7 +209,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data2/sift1Bgti.ivecs";
         gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
-        ncentroids = 256;
+        ncentroids = 1921;
         train_ratio = 5;
     }
     else if (p1 == "deep"){
@@ -269,8 +269,11 @@ int main(int argc,char **argv){
         printf("[%.3f s] Training on %ld vectors\n", elapsed() - t0, nt);
 
         for (int i = 0; i < slice; i++){
+            auto tt0 = elapsed();
             indexes[i]->train(size_t(nt / slice / train_ratio), xts[i]);
             delete[] xts[i];
+            auto tt1 = elapsed();
+            printf("Train %d/%d done: %.3f\n", i, slice, tt1 - tt0);
         }
     }
 
