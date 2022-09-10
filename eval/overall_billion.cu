@@ -211,7 +211,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data2/sift1Bgti.ivecs";
         gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
-        ncentroids = 256;
+        ncentroids = 1921;
     }
     else if (p1 == "deep"){
         db = "/billion-data/data1/deep1B.fbin";
