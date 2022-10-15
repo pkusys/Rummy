@@ -208,7 +208,7 @@ int main(int argc,char **argv){
         gtd = fvecs_read(gtD.c_str(), &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
-    nq = 256;
+    nq = 1024;
 
     // Start queries
     std::vector<float> dis(nq * input_k);
