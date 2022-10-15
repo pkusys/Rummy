@@ -6,3 +6,6 @@
 
 add_executable(overall EXCLUDE_FROM_ALL overall.cpp)
 target_link_libraries(overall PUBLIC faiss)
+
+add_executable(comparison EXCLUDE_FROM_ALL comparison.cpp)
+target_link_libraries(comparison PUBLIC faiss)
