@@ -193,7 +193,7 @@ int main(int argc,char **argv){
     auto tt0 = elapsed();
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = ncentroids / 2;
+        ix->nprobe = ncentroids / 8;
     }
 
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
