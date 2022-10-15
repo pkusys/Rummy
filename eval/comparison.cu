@@ -213,7 +213,7 @@ int main(int argc,char **argv){
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
-    index.nprobe = int(ncentroids / 2);
+    index.nprobe = int(ncentroids / 8);
 
     auto tt0 = elapsed();
     double sampletime = 0.;
