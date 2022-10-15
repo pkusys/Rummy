@@ -113,7 +113,7 @@ int main(int argc,char **argv){
     }
     // fix the dataset sift
     std::string db = "/workspace/data/sift/sift10M/sift10M.fvecs";
-    std::string train_db = "/workspace/data/sift/sift1M.fvecs";
+    std::string train_db = db;
     std::string query = "/workspace/data/sift/sift10M/query.fvecs";
     std::string gtI = "/workspace/data/sift/sift10M/idx.ivecs";
     std::string gtD = "/workspace/data/sift/sift10M/dis.fvecs";
