@@ -212,7 +212,7 @@ int main(int argc,char **argv){
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
     else
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
-    index->use_pin_memory = false;
+    index->use_pin_memory = true;
 
     FAISS_ASSERT (config.interleavedLayout == true);
 
