@@ -208,7 +208,7 @@ int main(int argc,char **argv){
     faiss::IndexIVFPipeConfig config;
     faiss::IndexIVFPipe* index;
     
-    if (p1 == "text")
+    if (p1 == "text" || p1 == "text30")
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_INNER_PRODUCT);
     else
         index = new faiss::IndexIVFPipe(dim, ncentroids, config, pipe_res, faiss::METRIC_L2);
