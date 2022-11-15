@@ -351,7 +351,7 @@ int main(int argc,char **argv){
     faiss::gpu::GpuIndexIVFFlatConfig config;
     config.device = dev_no;
 
-    if(bs == 1){
+    if(bs == 8){
         nq = 300;
     }
     else{
