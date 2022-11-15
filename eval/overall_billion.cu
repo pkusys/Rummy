@@ -338,8 +338,8 @@ int main(int argc,char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    if(bs == 1){
-        nq = 300;
+    if(bs == 8){
+        nq = 100;
     }
     else{
         nq = 2560;
