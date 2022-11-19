@@ -366,7 +366,7 @@ int main(int argc,char **argv){
     printf("[%.3f s] Finish Profile\n",
                elapsed() - t0);
 
-    if(bs == 1){
+    if(bs == 8){
         nq = 300;
     }
     else{
