@@ -127,7 +127,7 @@ int main(int argc,char **argv){
 
     auto t0 = elapsed();
     omp_set_num_threads(8);
-    int ncentroids = 256;
+    int ncentroids = 1024;
 
     int dev_no = 0;
     faiss::gpu::StandardGpuResources resources;
@@ -208,12 +208,15 @@ int main(int argc,char **argv){
         gtd = fvecs_read(gtD.c_str(), &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
-    nq = 1024;
+    if (bs <= 1024)
+        nq = 1024;
+    else
+        nq = 2048;
 
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
-    index.nprobe = int(ncentroids / 8);
+    index.nprobe = 18;
 
     auto tt0 = elapsed();
     double sampletime = 0.;
