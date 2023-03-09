@@ -23,6 +23,7 @@
 #include <faiss/AutoTune.h>
 #include <faiss/index_factory.h>
 #include <faiss/IndexIVF.h>
+#include <faiss/IndexHNSW.h>
 
 #define DC(classname) classname* ix = dynamic_cast<classname*>(index)
 
@@ -107,10 +108,10 @@ int main(int argc,char **argv){
     auto t0 = elapsed();
 
     omp_set_num_threads(8);
-    int ncentroids = 1024;
+    int ncentroids = 64 * 4;
 
-    std::string index_c = "IVF" + std::to_string(ncentroids) + ",Flat";
-    faiss::Index* index;
+    faiss::IndexHNSWFlat* index = new faiss::IndexHNSWFlat(dim, 6);
+    index->hnsw.efConstruction = 16;
 
     size_t d;
     // Train the index
@@ -122,10 +123,9 @@ int main(int argc,char **argv){
 
         FAISS_ASSERT(d == dim);
 
-        index = faiss::index_factory(d, index_c.c_str());
         printf("[%.3f s] Training on %ld vectors\n", elapsed() - t0, nt);
 
-        index->train(nt, xt);
+        // index->train(nt, xt);
         delete[] xt;
     }
 
@@ -187,7 +187,6 @@ int main(int argc,char **argv){
         gtd = fvecs_read(gtD.c_str(), &k, &nq2);
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
-
     if (bs <= 1024)
         nq = 1024;
     else
@@ -195,11 +194,14 @@ int main(int argc,char **argv){
 
     auto tt0 = elapsed();
 
-    if (DC(faiss::IndexIVF)){
-        ix->nprobe = 18;
-    }
+    // if (DC(faiss::IndexIVF)){
+    //     ix->nprobe = ncentroids / 8;
+    // }
 
     omp_set_num_threads(8);
+
+    index->hnsw.search_bounded_queue = false;
+    index->hnsw.efSearch = 8000;
 
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
     float* D = new float[nq * input_k];
