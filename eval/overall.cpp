@@ -193,7 +193,7 @@ int main(int argc, char **argv){
         gtI = "/billion-data/data2/sift1Bgti.ivecs";
         gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
-        ncentroids = 1024;
+        ncentroids = 256;
     }
     else if (p1 == "deep"){
         db = "/billion-data/data1/deep1B.fbin";
@@ -202,7 +202,7 @@ int main(int argc, char **argv){
         gtI = "/billion-data/data1/deep1Bgti.ivecs";
         gtD = "/billion-data/data1/deep1Bgtd.fvecs";
         dim = 96;
-        ncentroids = 2845;
+        ncentroids = 384;
     }
     else if (p1 == "text"){
         db = "/billion-data/data3/text1B.fbin";
@@ -211,7 +211,7 @@ int main(int argc, char **argv){
         gtI = "/billion-data/data3/text1Bgti.ivecs";
         gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
-        ncentroids = 1024;
+        ncentroids = 192;
     }
 
     auto t0 = elapsed();
@@ -308,17 +308,26 @@ int main(int argc, char **argv){
         assert(nq2 == nq || !"incorrect nb of ground truth entries");
     }
 
-    nq = 2560;
+    if (bs >= 2048)
+        nq = 2048;
+    else
+        nq = 64;
 
-    auto tt0 = elapsed();
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = ncentroids / 8;
+        ix->nprobe = 8;
     }
 
     omp_set_num_threads(64);
 
     // output buffers
+    std::vector<int> vecs = {32, 28, 24, 20, 16, 12, 10, 8, 6, 4, 2, 1};
+    for (int id = vecs.size() - 1; id >= 0; id--){
+        printf("Nprobe=%d, new\n", vecs[id]);
+        if (DC(faiss::IndexIVF)){
+            ix->nprobe = vecs[id];
+        }
+    auto tt0 = elapsed();
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
     float* D = new float[nq * input_k];
     int i;
@@ -337,6 +346,9 @@ int main(int argc, char **argv){
 
     printf("Ave Search Time : %.3f s\n", total / i);
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
+    delete[] I;
+    delete[] D;
+    }
 
     delete[] xq;
     delete[] gt;
