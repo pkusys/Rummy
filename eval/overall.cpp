@@ -164,10 +164,10 @@ std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, 
     return vec;
 }
 
-// ./script dataset-name bs topk (./overall deep 256 10)
+// ./script dataset-name bs topk nprobe (./overall deep 256 10 8)
 int main(int argc, char **argv){
     std::cout << argc << " arguments" <<std::endl;
-    if(argc - 1 != 3){
+    if(argc - 1 != 4){
         printf("You should at least input 3 params: the dataset name, batch size and topk\n");
         return 0;
     }
@@ -175,6 +175,8 @@ int main(int argc, char **argv){
     std::string p1 = argv[1];
     std::string p2 = argv[2];
     std::string p3 = argv[3];
+    std::string p4 = argv[4];
+    int in_nprobe = std::stoi(p4);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int ncentroids;
@@ -315,18 +317,18 @@ int main(int argc, char **argv){
 
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = 8;
+        ix->nprobe = in_nprobe;
     }
 
     omp_set_num_threads(64);
 
     // output buffers
-    std::vector<int> vecs = {32, 28, 24, 20, 16, 12, 10, 8, 6, 4, 2, 1};
-    for (int id = vecs.size() - 1; id >= 0; id--){
-        printf("Nprobe=%d, new\n", vecs[id]);
-        if (DC(faiss::IndexIVF)){
-            ix->nprobe = vecs[id];
-        }
+    // std::vector<int> vecs = {32, 28, 24, 20, 16, 12, 10, 8, 6, 4, 2, 1};
+    // for (int id = vecs.size() - 1; id >= 0; id--){
+    //     printf("Nprobe=%d, new\n", vecs[id]);
+    //     if (DC(faiss::IndexIVF)){
+    //         ix->nprobe = vecs[id];
+    //     }
     auto tt0 = elapsed();
     faiss::Index::idx_t* I = new faiss::Index::idx_t[nq * input_k];
     float* D = new float[nq * input_k];
@@ -348,7 +350,7 @@ int main(int argc, char **argv){
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
     delete[] I;
     delete[] D;
-    }
+    // }
 
     delete[] xq;
     delete[] gt;
