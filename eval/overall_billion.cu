@@ -184,16 +184,19 @@ std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, 
     return vec;
 }
 
-// ./script dataset-name bs topk (./overall deep 256 10)
+// ./script dataset-name bs topk nprobe (./overall deep 256 10 8)
 int main(int argc,char **argv){
     std::cout << argc << " arguments" <<std::endl;
-    if(argc - 1 != 3){
+    if(argc - 1 != 4){
         printf("You should at least input 3 params: the dataset name, batch size and topk\n");
         return 0;
     }
     std::string p1 = argv[1];
     std::string p2 = argv[2];
     std::string p3 = argv[3];
+    std::string p4 = argv[4];
+
+    int in_probe = std::stoi(p4);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int ncentroids = -1;
@@ -211,7 +214,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data2/sift1Bgti.ivecs";
         gtD = "/billion-data/data2/sift1Bgtd.fvecs";
         dim = 128;
-        ncentroids = 1921;
+        ncentroids = 1024;
     }
     else if (p1 == "deep"){
         db = "/billion-data/data1/deep1B.fbin";
@@ -220,7 +223,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data1/deep1Bgti.ivecs";
         gtD = "/billion-data/data1/deep1Bgtd.fvecs";
         dim = 96;
-        ncentroids = 2845;
+        ncentroids = 768;
     }
     else if (p1 == "text"){
         db = "/billion-data/data3/text1B.fbin";
@@ -229,7 +232,7 @@ int main(int argc,char **argv){
         gtI = "/billion-data/data3/text1Bgti.ivecs";
         gtD = "/billion-data/data3/text1Bgtd.fvecs";
         dim = 200;
-        ncentroids = 1313;
+        ncentroids = 1920;
     }
     else{
         printf("Your input dataset is not included yet! \n");
@@ -339,15 +342,15 @@ int main(int argc,char **argv){
     }
 
     if(bs == 8){
-        nq = 100;
+        nq = 64;
     }
     else{
-        nq = 2560;
+        nq = 10000;
     }
     // Start queries
     std::vector<float> dis(nq * input_k);
     std::vector<faiss::Index::idx_t> idx(nq * input_k);
-    index->nprobe = ncentroids / 8;
+    index->nprobe = in_probe;
 
     auto tt0 = elapsed();
     int i;
