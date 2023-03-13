@@ -185,16 +185,19 @@ std::vector<float*> fbin_reads(const char* fname, size_t* d_out, size_t* n_out, 
     return vec;
 }
 
-// ./script dataset-name bs topk (./overall deep 256 10)
+// ./script dataset-name bs topk nprobe (./overall deep 256 10 1)
 int main(int argc,char **argv){
     std::cout << argc << " arguments" <<std::endl;
-    if(argc - 1 != 3){
+    if(argc - 1 != 4){
         printf("You should at least input 3 params: the dataset name, batch size and topk\n");
         return 0;
     }
     std::string p1 = argv[1];
     std::string p2 = argv[2];
     std::string p3 = argv[3];
+    std::string p4 = argv[4];
+
+    int in_probe = std::stoi(p4);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int ncentroids;
@@ -361,15 +364,19 @@ int main(int argc,char **argv){
                elapsed() - t0);
 
     if(bs == 8){
-        nq = 300;
+        nq = 64;
     }
     else{
-        nq = 2560;
+        nq = 10000;
     }
     // Start queries
+    // std::vector<int> vecs = {32, 28, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};
+    // for (int id = vecs.size() - 1; id >= 0; id--){
+    //     printf("Nprobe=%d, new\n", vecs[id]);
+    //     in_probe = vecs[id];
     std::vector<float> dis(nq * input_k);
     std::vector<int> idx(nq * input_k);
-    index->set_nprobe(ncentroids / 8);
+    index->set_nprobe(in_probe);
     double tt0, tt1, total = 0., opt = 0., group_time = 0., reorder_time = 0., nogroup = 0.;
 
     int i;
@@ -380,11 +387,14 @@ int main(int argc,char **argv){
         tt1 = elapsed();
         printf("Computation Time: %.3f s, Transmission Time: %.3f s\n", 
             sche->com_time, sche->com_transmission);
-        total += (tt1 - tt0) * 1000;
-        group_time += sche->group_time;
-        reorder_time += sche->reorder_time;
-        opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
-        nogroup += sche->com_time*1000 + sche->com_transmission*1000;
+        // warm up
+        if (i > 0){
+            total += (tt1 - tt0) * 1000;
+            group_time += sche->group_time;
+            reorder_time += sche->reorder_time;
+            opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
+            nogroup += sche->com_time*1000 + sche->com_transmission*1000;
+        }
         delete sche;
     }
 
@@ -393,11 +403,12 @@ int main(int argc,char **argv){
         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);
     }
 
-    printf("Ave Opt Latency : %.3f s\n", opt / i / 1000);
-    printf("Ave Latency : %.3f s\n", total / i /1000);
-    printf("Ave Reorder Time : %.3f ms\n", reorder_time / i);
-    printf("Ave Group Time : %.3f ms\n", group_time / i);
+    printf("Ave Opt Latency : %.3f s\n", opt / (i-1) / 1000);
+    printf("Ave Latency : %.3f s\n", total / (i-1) /1000);
+    printf("Ave Reorder Time : %.3f ms\n", reorder_time / (i-1));
+    printf("Ave Group Time : %.3f ms\n", group_time / (i-1));
     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
+    // }
 
     delete[] xq;
     delete[] gt;
