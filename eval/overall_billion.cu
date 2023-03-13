@@ -176,12 +176,12 @@ int* ivecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     return (int*)fvecs_read(fname, d_out, n_out);
 }
 
-// ./overall deep bs topk slice
+// ./overall deep bs topk slice nprobe
 int main(int argc,char **argv){
     omp_set_num_threads(8);
 
     std::cout << argc << " arguments" <<std::endl;
-    if(argc - 1 != 4){
+    if(argc - 1 != 5){
         printf("You should at least input 3 params: the dataset name, batch size, topk and slice number\n");
         return 0;
     }
@@ -190,6 +190,9 @@ int main(int argc,char **argv){
     std::string p2 = argv[2];
     std::string p3 = argv[3];
     std::string p4 = argv[4];
+    std::string p5 = argv[5];
+
+    int in_probe = std::stoi(p5);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int slice = std::stoi(p4);
@@ -352,10 +355,10 @@ int main(int argc,char **argv){
     config.device = dev_no;
 
     if(bs == 8){
-        nq = 300;
+        nq = 64;
     }
     else{
-        nq = 2560;
+        nq = 2048;
     }
 
     std::vector<faiss::Index::idx_t*> idxes(slice);
@@ -385,7 +388,7 @@ int main(int argc,char **argv){
             double tt1 = elapsed();
             printf("Copy Time: %.3f s\n", (tt1 - tt0)*1);
             // Set nrpobe
-            gpuindex.nprobe = ncentroids / 8;
+            gpuindex.nprobe = in_probe;
             // std::cout << gpuindex.nprobe << "\n";
             gpuindex.search(bs, xq + d * (q * bs), input_k, 
                 dises[i] + input_k * (q * bs), idxes[i] + input_k * (q * bs));
