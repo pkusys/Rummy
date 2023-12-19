@@ -176,7 +176,6 @@ int main(int argc, char **argv){
     std::string p2 = argv[2];
     std::string p3 = argv[3];
     std::string p4 = argv[4];
-    int in_nprobe = std::stoi(p4);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int ncentroids;
@@ -215,6 +214,8 @@ int main(int argc, char **argv){
         dim = 200;
         ncentroids = 192;
     }
+
+    int in_nprobe = std::stof(p4) * float(ncentroids);
 
     auto t0 = elapsed();
 
