@@ -240,6 +240,8 @@ int main(int argc,char **argv){
     }
 
     int in_probe = std::stof(p4) * float(ncentroids);
+    if (std::stof(p4) >= 1 - 1e-6)
+        in_probe = std::stoi(p4);
 
     auto t0 = elapsed();
 
