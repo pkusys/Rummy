@@ -196,7 +196,6 @@ int main(int argc,char **argv){
     std::string p3 = argv[3];
     std::string p4 = argv[4];
 
-    int in_probe = std::stoi(p4);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int ncentroids = -1;
@@ -238,6 +237,8 @@ int main(int argc,char **argv){
         printf("Your input dataset is not included yet! \n");
         return 0;
     }
+
+    int in_probe = std::stof(p4) * float(ncentroids);
 
     auto t0 = elapsed();
 
