@@ -192,7 +192,6 @@ int main(int argc,char **argv){
     std::string p4 = argv[4];
     std::string p5 = argv[5];
 
-    int in_probe = std::stoi(p5);
     int input_k = std::stoi(p3);
     int bs = std::stoi(p2);
     int slice = std::stoi(p4);
@@ -239,6 +238,8 @@ int main(int argc,char **argv){
         printf("Your input dataset is not included yet! \n");
         return 0;
     }
+
+    int in_probe = std::stof(p5) * float(ncentroids);
 
     std::string index_c = "IVF" + std::to_string(ncentroids) + ",Flat";
     std::vector<faiss::Index*> indexes;
