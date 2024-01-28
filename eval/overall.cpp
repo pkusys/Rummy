@@ -320,7 +320,7 @@ int main(int argc, char **argv){
 
 
     if (DC(faiss::IndexIVF)){
-        ix->nprobe = in_nprobe;
+        ix->nprobe = in_probe;
     }
 
     omp_set_num_threads(64);
