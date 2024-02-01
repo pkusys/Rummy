@@ -82,8 +82,10 @@ Compile cpu version: `cmake -B build . -DBLA_VENDOR=Intel10_64_dyn -DFAISS_ENABL
 
 2. Run `make -C build -j faiss`.
 
-## Mount EBS
+3. RUN `make -C build -j overall`.
 
+## Mount Local Block
+I recommend you to use local disk in the instance since there may be some issues of EBS when facing large files.
 ```bash
 sudo mkfs -t xfs /dev/nvme2n1
 sudo mkfs -t xfs /dev/nvme3n1
