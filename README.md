@@ -1,6 +1,6 @@
 ## 0. Introduction
 Rummy is a GPU-based vector query processing system for billion-scale datasets beyond GPU memory (with a single GPU). This repository contains one version of the source code. You can find more
-details about the system design in our NSDI'24 paper: "" [[Paper]]().
+details about the system design in our NSDI'24 paper: "Fast Vector Query Processing for Large Datasets Beyond GPU Memory with Reordered Pipelining" [[Paper]](https://www.usenix.org/conference/nsdi24/presentation/zhang-zili-pipelining).
 
 ## 1. Implementation and reproducing
 The core implementation is in [DIR](https://github.com/Gold-Sea/Faiss-GPU/tree/main/faiss/pipe)
